@@ -69,9 +69,12 @@ export GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
   - `RuntimeAgentClient` に Agent Runtime 呼び出しを実装
 - `agent/actions.py`
   - local / ADK backend の両方から同じ action/tool pipeline を呼びます。
+  - グラレコ生成では Agent が `business` / `pop` / `minimal` から visual style を選び、その判断が plan / image prompt / fallback SVG に反映されます。
 
 ## 講義での説明文言
 
 現状の demo は、Web App から Agent backend を呼び、ADK backend では `LlmAgent` / `Runner` / `SessionService` による narration turn を実行したうえで、同じ action/tool pipeline を進めます。この LlmAgent は現状ナレーター役です。tool 群を持つ `build_graphic_recording_agent` を次フェーズで接続すると、LlmAgent 自身が tool 呼び出しを選ぶ構成へ進められます。
+
+また、グラレコ生成フェーズでは Agent が記事内容から `business` / `pop` / `minimal` の visual style を選択します。この style decision は progress と結果画面に表示され、後続の visual plan と画像生成 prompt に反映されます。
 
 次フェーズではこの tool 群を Agent Runtime 上の Agent として deploy し、`AGENT_BACKEND=runtime` から呼び出す構成に差し替えます。

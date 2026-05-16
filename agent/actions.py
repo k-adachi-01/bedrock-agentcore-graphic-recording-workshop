@@ -67,26 +67,42 @@ async def _build_graphic(
 ) -> GraphicResult:
     progress = [
         ProgressStep("要約確認を受け取りました", "done"),
-        ProgressStep("グラレコ構成案を作成中", "running"),
+        ProgressStep("Agent がスタイルを選択中", "running"),
+        ProgressStep("グラレコ構成案を作成", "pending"),
         ProgressStep("画像生成を実行", "pending"),
         ProgressStep("成果物を保存", "pending"),
     ]
     await _emit(progress, on_progress)
     await _mock_step_delay()
 
-    visual_plan = await tools.create_visual_plan(summary.summary_lines, summary.key_points, feedback)
-    progress[1] = ProgressStep("グラレコ構成案を作成", "done")
-    progress[2] = ProgressStep("画像生成を実行中", "running")
+    style_decision = await tools.decide_style(summary.summary_lines, summary.key_points, feedback)
+    progress[1] = ProgressStep(
+        "Agent がスタイルを選択",
+        "done",
+        f"{style_decision.style}: {style_decision.reason}",
+    )
+    progress[2] = ProgressStep("グラレコ構成案を作成中", "running")
     await _emit(progress, on_progress)
     await _mock_step_delay()
 
-    generated_image = await tools.generate_image_artifact(visual_plan)
+    visual_plan = await tools.create_visual_plan_for_style(
+        summary.summary_lines,
+        summary.key_points,
+        feedback,
+        style=style_decision.style,
+    )
+    progress[2] = ProgressStep("グラレコ構成案を作成", "done", style_decision.style)
+    progress[3] = ProgressStep("画像生成を実行中", "running")
+    await _emit(progress, on_progress)
+    await _mock_step_delay()
+
+    generated_image = await tools.generate_image_artifact(visual_plan, style=style_decision.style)
     artifact_url = ""
     artifact_mime_type = "image/svg+xml"
     if generated_image.data:
         svg = ""
         image_backend = generated_image.backend
-        progress[2] = ProgressStep("画像生成を実行", "done", image_backend)
+        progress[3] = ProgressStep("画像生成を実行", "done", image_backend)
     else:
         svg = await tools.render_svg(
             summary.title,
@@ -94,13 +110,14 @@ async def _build_graphic(
             summary.key_points,
             visual_plan,
             feedback,
+            style=style_decision.style,
         )
         image_backend = generated_image.backend
-        progress[2] = ProgressStep("画像生成を fallback SVG で完了", "done", image_backend)
+        progress[3] = ProgressStep("画像生成を fallback SVG で完了", "done", image_backend)
     await _emit(progress, on_progress)
     await _mock_step_delay()
 
-    progress[3] = ProgressStep("成果物を保存中", "running")
+    progress[4] = ProgressStep("成果物を保存中", "running")
     await _emit(progress, on_progress)
     if generated_image.data:
         artifact_path = await tools.save_binary_artifact(
@@ -113,7 +130,7 @@ async def _build_graphic(
     else:
         artifact_path = await tools.save_artifact(summary.session_id, svg)
         artifact_url = ""
-    progress[3] = ProgressStep("成果物を保存", "done", artifact_path)
+    progress[4] = ProgressStep("成果物を保存", "done", artifact_path)
     await _emit(progress, on_progress)
 
     return GraphicResult(
@@ -124,6 +141,8 @@ async def _build_graphic(
         image_backend=image_backend,
         artifact_url=artifact_url,
         artifact_mime_type=artifact_mime_type,
+        visual_style=style_decision.style,
+        style_reason=style_decision.reason,
         progress=progress,
     )
 

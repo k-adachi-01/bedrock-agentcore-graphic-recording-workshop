@@ -10,7 +10,7 @@ import re
 import socket
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -51,6 +51,13 @@ class VisualPlan(BaseModel):
         min_length=4,
         max_length=6,
     )
+
+
+class StyleDecision(BaseModel):
+    style: Literal["business", "pop", "minimal"] = Field(
+        description="Best visual style for this article."
+    )
+    reason: str = Field(description="One concise Japanese sentence explaining the style choice.")
 
 
 @dataclass
@@ -140,10 +147,62 @@ async def summarize_article(title: str, article_text: str) -> dict[str, list[str
     }
 
 
+async def decide_style(
+    summary_lines: list[str],
+    key_points: list[str],
+    feedback: str = "",
+) -> StyleDecision:
+    """Choose the visual style that best fits the article summary."""
+    if is_mock_mode():
+        return _heuristic_style_decision(summary_lines, key_points, feedback, reason_prefix="mock")
+
+    prompt = f"""次の要約と重要ポイントに最も合うグラフィックレコーディングのスタイルを1つ選んでください。
+
+選択肢:
+- business: 企業向け、落ち着いた配色、構造化された図解
+- pop: 一般読者向け、明るい配色、親しみやすいアイコン
+- minimal: 情報量を絞った、余白が多い、静かな資料調
+
+3行要約:
+{chr(10).join(summary_lines)}
+
+重要ポイント:
+{chr(10).join(key_points)}
+
+ユーザーフィードバック:
+{feedback or "なし"}
+
+制約:
+- style は business / pop / minimal のいずれか
+- reason は日本語1文
+- 出力は指定 schema に厳密に従う
+"""
+    try:
+        return await _generate_structured_content(prompt, StyleDecision)
+    except Exception as exc:
+        logger.warning("Gemini style decision failed, falling back to heuristic: %s", exc)
+        return _heuristic_style_decision(
+            summary_lines,
+            key_points,
+            feedback,
+            reason_prefix=f"fallback: {str(exc)[:80]}",
+        )
+
+
 async def create_visual_plan(summary_lines: list[str], key_points: list[str], feedback: str = "") -> list[str]:
     """Create composition instructions for a graphic recording image."""
+    return await create_visual_plan_for_style(summary_lines, key_points, feedback, style="business")
+
+
+async def create_visual_plan_for_style(
+    summary_lines: list[str],
+    key_points: list[str],
+    feedback: str = "",
+    style: str = "business",
+) -> list[str]:
+    """Create composition instructions for a graphic recording image using the selected style."""
     if is_mock_mode():
-        plan = list(_DEFAULT_PLAN_ITEMS)
+        plan = _default_plan_items_for_style(style)
         if feedback.strip():
             plan.append(f"フィードバック反映: {feedback.strip()[:80]}")
         return plan
@@ -159,9 +218,13 @@ async def create_visual_plan(summary_lines: list[str], key_points: list[str], fe
 ユーザーフィードバック:
 {feedback or "なし"}
 
+選択スタイル:
+{style}
+
 制約:
 - plan_items は4から6個
 - 画面上の配置、強調する概念、視線誘導が分かる指示にする
+- 選択スタイルに合う色調、密度、アイコン表現にする
 - ADK / Agent Runtime / Gemini / Cloud Run / Cloud Storage の文脈が自然に伝わるようにする
 - 出力は指定 schema に厳密に従う
 """
@@ -170,7 +233,7 @@ async def create_visual_plan(summary_lines: list[str], key_points: list[str], fe
         return visual_plan.plan_items[:6]
     except Exception as exc:
         logger.warning("Gemini visual plan failed, falling back to default plan: %s", exc)
-        plan = list(_DEFAULT_PLAN_ITEMS)
+        plan = _default_plan_items_for_style(style)
         if feedback.strip():
             plan.append(f"フィードバック反映: {feedback.strip()[:80]}")
         return plan
@@ -184,7 +247,7 @@ async def generate_image(visual_plan: list[str]) -> str:
     return _render_image_svg(image.data, image.mime_type)
 
 
-async def generate_image_artifact(visual_plan: list[str]) -> GeneratedImage:
+async def generate_image_artifact(visual_plan: list[str], style: str = "business") -> GeneratedImage:
     """Generate a graphic recording image with Gemini image model for artifact storage."""
     if is_mock_mode():
         return GeneratedImage(b"", "", "fallback-svg:mock-mode")
@@ -202,11 +265,15 @@ async def generate_image_artifact(visual_plan: list[str]) -> GeneratedImage:
 構成案:
 {chr(10).join(f"- {item}" for item in visual_plan)}
 
+選択スタイル:
+{style}
+
 表現:
 - 16:9 の横長
 - 白背景、読みやすい太線、アイコン、矢印、付箋風メモ
 - 日本語テキストは短く、大きく、読みやすく
 - 企業向け勉強会の資料として使える落ち着いた色使い
+- business は落ち着いたブルー/グレー、pop は明るいアクセント、minimal は余白重視で淡い配色
 """
     try:
         image_bytes, mime_type = await _generate_image_data(prompt)
@@ -232,8 +299,10 @@ async def render_svg(
     key_points: list[str],
     visual_plan: list[str],
     feedback: str = "",
+    style: str = "business",
 ) -> str:
-    accent = "#2563eb" if not feedback else "#0f766e"
+    palette = _style_palette(style, feedback)
+    accent = palette["accent"]
     safe_title = html.escape(title)
     summary_items = "".join(
         f'<text x="78" y="{180 + i * 34}" class="summary">{html.escape(line)}</text>'
@@ -266,7 +335,7 @@ async def render_svg(
       <path d="M0,0 L0,6 L9,3 z" fill="#64748b" />
     </marker>
   </defs>
-  <rect class="bg" width="1100" height="680" rx="0" />
+  <rect width="1100" height="680" rx="0" fill="{palette["background"]}" />
   <rect x="40" y="36" width="1020" height="92" rx="8" fill="{accent}" />
   <text x="72" y="92" font-family="sans-serif" font-size="34" font-weight="800" fill="#ffffff">{safe_title}</text>
 
@@ -280,7 +349,7 @@ async def render_svg(
 
   <rect class="panel" x="54" y="350" width="640" height="180" rx="8" />
   <text x="78" y="386" class="label">Agent Flow</text>
-  <circle cx="130" cy="444" r="34" fill="#dbeafe" stroke="{accent}" stroke-width="3" />
+  <circle cx="130" cy="444" r="34" fill="{palette["soft"]}" stroke="{accent}" stroke-width="3" />
   <text x="106" y="450" class="small">URL</text>
   <path class="arrow" d="M166 444 H256" />
   <circle cx="306" cy="444" r="42" fill="#ecfeff" stroke="#0891b2" stroke-width="3" />
@@ -295,7 +364,7 @@ async def render_svg(
 
   <rect x="54" y="562" width="992" height="74" rx="8" fill="#e2e8f0" />
   <text x="78" y="592" class="label">Visual Plan</text>
-  <text x="78" y="620" class="small">{html.escape(plan_text[:130])}</text>
+  <text x="78" y="620" class="small">Style: {html.escape(style)} / {html.escape(plan_text[:110])}</text>
   {feedback_note}
 </svg>"""
 
@@ -502,6 +571,48 @@ def _heuristic_summary(title: str, article_text: str, reason: str = "") -> dict[
         "key_points": key_points[:6],
         "backend": f"heuristic:{reason[:80]}" if reason else "heuristic",
     }
+
+
+def _heuristic_style_decision(
+    summary_lines: list[str],
+    key_points: list[str],
+    feedback: str = "",
+    reason_prefix: str = "heuristic",
+) -> StyleDecision:
+    text = " ".join(summary_lines + key_points + [feedback]).lower()
+    if any(word in text for word in ["pop", "ポップ", "親しみ", "一般", "note", "読者", "キャリア"]):
+        return StyleDecision(style="pop", reason=f"{reason_prefix}: 一般読者向けの親しみやすい表現が合うため。")
+    if any(word in text for word in ["minimal", "ミニマル", "シンプル", "余白", "簡潔"]):
+        return StyleDecision(style="minimal", reason=f"{reason_prefix}: 情報を絞った静かな見せ方が合うため。")
+    return StyleDecision(style="business", reason=f"{reason_prefix}: 企業向けデモとして構造化された図解が合うため。")
+
+
+def _default_plan_items_for_style(style: str) -> list[str]:
+    if style == "pop":
+        return [
+            "左上に URL 入力から Agent 起動までを明るいアイコン付きで配置",
+            "中央に 3 行要約を付箋風の大きな吹き出しで配置",
+            "右側に重要ポイントをカラフルなノードで配置",
+            "下部に ADK / Agent Runtime / Cloud Run / Cloud Storage の流れを親しみやすい矢印で描く",
+        ]
+    if style == "minimal":
+        return [
+            "上部に記事タイトルと 3 行要約を余白多めに配置",
+            "中央に Agent の action/tool flow を細い線で整理",
+            "右側に重要ポイントを少数のシンプルなラベルで配置",
+            "下部に ADK / Agent Runtime / Cloud Storage の関係だけを控えめに示す",
+        ]
+    return list(_DEFAULT_PLAN_ITEMS)
+
+
+def _style_palette(style: str, feedback: str = "") -> dict[str, str]:
+    if feedback.strip():
+        return {"accent": "#0f766e", "soft": "#ccfbf1", "background": "#f8fafc"}
+    if style == "pop":
+        return {"accent": "#ea580c", "soft": "#ffedd5", "background": "#fff7ed"}
+    if style == "minimal":
+        return {"accent": "#475569", "soft": "#e2e8f0", "background": "#f8fafc"}
+    return {"accent": "#2563eb", "soft": "#dbeafe", "background": "#f8fafc"}
 
 
 def _render_image_svg(image_bytes: bytes, mime_type: str = "image/png") -> str:

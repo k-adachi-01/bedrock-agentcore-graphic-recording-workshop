@@ -35,4 +35,6 @@ class GraphicResult:
     image_backend: str = "fallback-svg"
     artifact_url: str = ""
     artifact_mime_type: str = "image/svg+xml"
+    visual_style: str = "business"
+    style_reason: str = ""
     progress: list[ProgressStep] = field(default_factory=list)

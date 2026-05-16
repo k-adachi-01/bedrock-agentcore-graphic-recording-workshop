@@ -42,6 +42,7 @@ def test_phase1_url_to_svg_regeneration_flow():
     assert "グラレコ結果" in graphic
     assert "<svg" in graphic
     assert "編集済み要約 1" in graphic
+    assert "Agent decision:" in graphic
 
     regen_job = client.post(
         "/graphics/regenerate",
@@ -83,6 +84,19 @@ def test_non_mock_text_tools_fallback_without_gemini_credentials(monkeypatch):
     assert summary["summary_lines"] == ["First.", "Second.", "Third."]
     assert summary["backend"].startswith("heuristic")
     assert len(plan) >= 4
+
+
+def test_style_decision_affects_plan_in_mock(monkeypatch):
+    monkeypatch.setenv("MOCK_MODE", "true")
+
+    from agent.tools import create_visual_plan_for_style, decide_style
+    import asyncio
+
+    decision = asyncio.run(decide_style(["一般読者向けの記事です"], ["note 読者に届ける"]))
+    plan = asyncio.run(create_visual_plan_for_style(["a"], ["b"], style=decision.style))
+
+    assert decision.style == "pop"
+    assert any("明るい" in item or "カラフル" in item for item in plan)
 
 
 def test_gemini_vertex_credentials_detection(monkeypatch):
