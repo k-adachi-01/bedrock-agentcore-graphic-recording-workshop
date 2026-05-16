@@ -1,0 +1,31 @@
+.htmx-indicator {
+  display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline-block;
+}
+
+.status-pending {
+  background: #cbd5e1;
+}
+
+.status-running {
+  background: #2563eb;
+  box-shadow: 0 0 0 4px #dbeafe;
+}
+
+.status-done {
+  background: #0f766e;
+}
+
+.status-failed {
+  background: #dc2626;
+}
+
+.graphic-canvas svg {
+  display: block;
+  height: auto;
+  width: 100%;
+}

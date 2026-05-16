@@ -1,0 +1,75 @@
+<section class="space-y-6">
+  <div>
+    <p class="text-sm font-semibold text-blue-700">Step 1-4</p>
+    <h2 class="mt-1 text-2xl font-bold text-slate-950">要約確認</h2>
+  </div>
+
+  {% include "partials/progress.html" with context %}
+
+  <div class="rounded-lg border border-slate-200 bg-slate-50 p-5">
+    <p class="text-sm font-semibold text-slate-600">記事タイトル</p>
+    <h3 class="mt-1 text-xl font-bold text-slate-950">{{ summary.title }}</h3>
+    <p class="mt-2 break-all text-sm text-slate-500">{{ summary.url }}</p>
+  </div>
+
+  <div class="grid gap-4 lg:grid-cols-2">
+    <div class="rounded-lg border border-slate-200 p-5">
+      <h3 class="text-base font-bold text-slate-950">3 行要約</h3>
+      <ol class="mt-4 space-y-3" id="summary-preview">
+        {% for line in summary.summary_lines %}
+          <li class="flex gap-3 text-slate-800">
+            <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{{ loop.index }}</span>
+            <span>{{ line }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+
+    <div class="rounded-lg border border-slate-200 p-5">
+      <h3 class="text-base font-bold text-slate-950">重要ポイント</h3>
+      <ul class="mt-4 space-y-3">
+        {% for point in summary.key_points %}
+          <li class="flex gap-3 text-slate-800">
+            <span class="mt-2 h-2 w-2 shrink-0 rounded-full bg-teal-600"></span>
+            <span>{{ point }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <form
+    hx-post="/graphics"
+    hx-target="#workspace"
+    hx-swap="innerHTML"
+    hx-indicator="#graphic-loading"
+    class="space-y-4"
+  >
+    <input type="hidden" name="session_id" value="{{ summary.session_id }}" />
+    <div class="grid gap-4 lg:grid-cols-2">
+      <label class="block">
+        <span class="text-sm font-semibold text-slate-700">3 行要約を編集</span>
+        <textarea
+          name="summary_text"
+          rows="4"
+          class="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-base outline-none ring-blue-600 transition focus:ring-2"
+        >{{ summary.summary_lines | join('\n') }}</textarea>
+      </label>
+      <label class="block">
+        <span class="text-sm font-semibold text-slate-700">重要ポイントを編集</span>
+        <textarea
+          name="key_points_text"
+          rows="4"
+          class="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-base outline-none ring-blue-600 transition focus:ring-2"
+        >{{ summary.key_points | join('\n') }}</textarea>
+      </label>
+    </div>
+    <button
+      type="submit"
+      class="inline-flex items-center justify-center rounded-md bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+    >
+      この要約でグラレコを生成
+    </button>
+    <span id="graphic-loading" class="htmx-indicator ml-3 text-sm font-medium text-blue-700">Agent が構成案と画像を生成しています...</span>
+  </form>
+</section>
