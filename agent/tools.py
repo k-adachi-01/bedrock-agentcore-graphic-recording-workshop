@@ -268,12 +268,15 @@ async def generate_image_artifact(visual_plan: list[str], style: str = "business
 選択スタイル:
 {style}
 
+スタイル指針:
+{_style_image_directive(style)}
+
 表現:
 - 16:9 の横長
 - 白背景、読みやすい太線、アイコン、矢印、付箋風メモ
 - 日本語テキストは短く、大きく、読みやすく
-- 企業向け勉強会の資料として使える落ち着いた色使い
-- business は落ち着いたブルー/グレー、pop は明るいアクセント、minimal は余白重視で淡い配色
+- 企業向け勉強会の資料として使える完成度にする
+- 選択スタイルと矛盾する色や装飾を混ぜない
 """
     try:
         image_bytes, mime_type = await _generate_image_data(prompt)
@@ -613,6 +616,15 @@ def _style_palette(style: str, feedback: str = "") -> dict[str, str]:
     if style == "minimal":
         return {"accent": "#475569", "soft": "#e2e8f0", "background": "#f8fafc"}
     return {"accent": "#2563eb", "soft": "#dbeafe", "background": "#f8fafc"}
+
+
+def _style_image_directive(style: str) -> str:
+    directives = {
+        "business": "色: 落ち着いたブルー/グレー。線: 細めで整然。アイコン: 企業資料風。余白: 標準。",
+        "pop": "色: ビビッドな黄・オレンジ・ターコイズ。線: 太め手描き風。アイコン: 丸く親しみやすい。表現: 明るく活発。",
+        "minimal": "色: モノトーン+1色アクセント。線: 細めシャープ。余白: 多め。要素数: 抑える。雰囲気: 静か。",
+    }
+    return directives.get(style, directives["business"])
 
 
 def _render_image_svg(image_bytes: bytes, mime_type: str = "image/png") -> str:
