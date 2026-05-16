@@ -188,7 +188,7 @@ async def generate_image_artifact(visual_plan: list[str]) -> GeneratedImage:
     """Generate a graphic recording image with Gemini image model for artifact storage."""
     if is_mock_mode():
         return GeneratedImage(b"", "", "fallback-svg:mock-mode")
-    if not _has_gemini_credentials():
+    if not has_gemini_credentials():
         message = "credentials are not configured"
         logger.warning("Gemini image generation skipped: %s", message)
         return GeneratedImage(b"", "", f"fallback-svg:{message}")
@@ -356,7 +356,7 @@ async def _extract_article_text(raw_html: str, url: str) -> tuple[str, str]:
 
 
 async def _generate_structured_content(prompt: str, schema_model):
-    if not _has_gemini_credentials():
+    if not has_gemini_credentials():
         raise RuntimeError(
             "GEMINI_API_KEY, GOOGLE_API_KEY, or Vertex AI Gemini environment settings are required"
         )
@@ -407,7 +407,7 @@ def _build_genai_client():
     return genai.Client()
 
 
-def _has_gemini_credentials() -> bool:
+def has_gemini_credentials() -> bool:
     if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
         return True
     return bool(
@@ -415,7 +415,6 @@ def _has_gemini_credentials() -> bool:
         and os.getenv("GOOGLE_CLOUD_PROJECT")
         and os.getenv("GOOGLE_CLOUD_LOCATION")
     )
-
 
 def _use_vertex_ai() -> bool:
     return os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in {"1", "true", "yes", "on"}

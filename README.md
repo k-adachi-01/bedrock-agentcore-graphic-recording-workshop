@@ -34,7 +34,10 @@ MOCK_MODE=true AGENT_BACKEND=local uvicorn web.main:app --reload
 ## 環境変数
 
 - `MOCK_MODE`: `true` の場合、外部 API なしで動作します。
-- `AGENT_BACKEND`: `local` または `runtime`。Phase 1 では `runtime` でも Mock Agent にフォールバックします。
+- `AGENT_BACKEND`: `local`, `adk`, `runtime`。
+  - `local`: FastAPI から Python action/tool pipeline を直接呼びます。
+  - `adk`: Google ADK `LlmAgent` + `Runner` + `InMemorySessionService` で narration turn を実行してから、同じ action/tool pipeline を実行します。
+  - `runtime`: Agent Runtime 呼び出し用の拡張ポイントです。
 - `ARTIFACT_DIR`: 生成 SVG の保存先です。
 - `GOOGLE_GENAI_USE_VERTEXAI=true`: Cloud Run / Gemini Enterprise Agent Platform の Gemini API を ADC で使う場合に設定します。この場合は `GOOGLE_CLOUD_PROJECT` と `GOOGLE_CLOUD_LOCATION` も必要です。
 - `GEMINI_API_KEY` または `GOOGLE_API_KEY`: ローカル素振りで Gemini Developer API を使う場合に設定します。
@@ -45,6 +48,7 @@ Cloud Run / Gemini Enterprise Agent Platform 側に寄せる場合の例:
 
 ```bash
 export MOCK_MODE=false
+export AGENT_BACKEND=adk
 export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT=your-project-id
 export GOOGLE_CLOUD_LOCATION=global
@@ -55,7 +59,8 @@ export GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
 ## Phase 2 以降の差し替えポイント
 
 - `agent/adk_agent.py`
-  - Google ADK `LlmAgent` の factory。Phase 1 では optional skeleton として配置しています。
+  - Google ADK `LlmAgent` factory と Runner 実行を実装しています。
+  - `AGENT_BACKEND=adk` では ADK narration step が progress に表示されます。
 - `agent/tools.py`
   - `fetch_article`: 実 URL から本文取得
   - `generate_image`: `gemini-3-pro-image-preview`（Nano Banana Pro）呼び出し。失敗時は fallback SVG に戻ります。
@@ -63,4 +68,10 @@ export GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
 - `web/agent_client.py`
   - `RuntimeAgentClient` に Agent Runtime 呼び出しを実装
 - `agent/actions.py`
-  - Google ADK の Agent / Tool 定義に接続
+  - local / ADK backend の両方から同じ action/tool pipeline を呼びます。
+
+## 講義での説明文言
+
+現状の demo は、Web App から Agent backend を呼び、ADK backend では `LlmAgent` / `Runner` / `SessionService` による narration turn を実行したうえで、同じ action/tool pipeline を進めます。この LlmAgent は現状ナレーター役です。tool 群を持つ `build_graphic_recording_agent` を次フェーズで接続すると、LlmAgent 自身が tool 呼び出しを選ぶ構成へ進められます。
+
+次フェーズではこの tool 群を Agent Runtime 上の Agent として deploy し、`AGENT_BACKEND=runtime` から呼び出す構成に差し替えます。

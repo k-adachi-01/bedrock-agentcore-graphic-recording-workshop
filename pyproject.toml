@@ -5,6 +5,7 @@ description = "Phase 1 mock demo: summarize a blog URL and render a graphic reco
 requires-python = ">=3.9"
 dependencies = [
   "fastapi>=0.111.0",
+  "google-adk>=1.18.0",
   "google-genai>=1.0.0",
   "httpx>=0.27.0",
   "jinja2>=3.1.0",
@@ -15,9 +16,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-adk = [
-  "google-adk>=1.0.0",
-]
 dev = [
   "pytest>=8.0.0",
 ]

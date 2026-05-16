@@ -92,9 +92,9 @@ def test_gemini_vertex_credentials_detection(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo-project")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
 
-    from agent.tools import _has_gemini_credentials
+    from agent.tools import has_gemini_credentials
 
-    assert _has_gemini_credentials() is True
+    assert has_gemini_credentials() is True
 
 
 def test_image_artifact_helpers():
@@ -112,6 +112,19 @@ def test_image_artifact_helpers():
     assert artifact_url_for_path("/tmp/custom-artifacts/abc.png") == "/artifacts/abc.png"
     assert display_model_name("gemini-2.5-flash-image").endswith("(Nano Banana)")
     assert display_model_name("gemini-3-pro-image-preview").endswith("(Nano Banana Pro)")
+
+
+def test_adk_backend_adds_narration_progress(monkeypatch):
+    monkeypatch.setenv("MOCK_MODE", "true")
+    monkeypatch.setenv("MOCK_STEP_DELAY", "0")
+
+    from web.agent_client import AdkAgentClient
+    import asyncio
+
+    summary = asyncio.run(AdkAgentClient().summarize_url("https://example.com/adk-demo"))
+
+    assert summary.progress[0].label == "ADK LlmAgent が summarize_url action を解説"
+    assert summary.progress[0].detail == "adk:dry-run:mock-mode"
 
 
 def _job_id(html: str, prefix: str) -> str:
