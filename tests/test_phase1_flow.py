@@ -221,12 +221,22 @@ def test_read_limited_response_rejects_oversized_body():
     import pytest
 
     class Response:
-        async def aiter_bytes(self):
+        async def aiter_raw(self):
             yield b"abc"
             yield b"def"
 
     with pytest.raises(ValueError, match="exceeds 5 bytes"):
         asyncio.run(_read_limited_response(Response(), 5))
+
+
+def test_invalid_content_encoding_falls_back_to_raw_body():
+    from agent.tools import _decode_response_content
+    import httpx
+
+    body = b"<html><title>Plain HTML</title></html>"
+    decoded = _decode_response_content(body, httpx.Headers({"content-encoding": "gzip"}))
+
+    assert decoded == body
 
 
 def test_retryable_exception_detection():

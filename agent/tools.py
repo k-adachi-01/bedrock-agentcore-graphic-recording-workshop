@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import html
 import ipaddress
 import logging
 import os
 import re
 import socket
+import zlib
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Literal, Optional, Union
@@ -510,7 +512,12 @@ async def _upload_artifact_to_gcs(path: Path, content_type: str) -> None:
 
 async def _fetch_public_url(url: str) -> httpx.Response:
     current_url = url
-    async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "identity",
+        "User-Agent": "GeminiEnterpriseAgentWorkshop/1.0",
+    }
+    async with httpx.AsyncClient(follow_redirects=False, timeout=15, headers=headers) as client:
         for _ in range(5):
             await _assert_public_http_url(current_url)
             async with client.stream("GET", current_url) as response:
@@ -521,10 +528,14 @@ async def _fetch_public_url(url: str) -> httpx.Response:
                     current_url = urljoin(str(response.url), location)
                     continue
                 response.raise_for_status()
-                content = await _read_limited_response(response, article_fetch_max_bytes())
+                raw_content = await _read_limited_response(response, article_fetch_max_bytes())
+                content = _decode_response_content(raw_content, response.headers)
+                headers = httpx.Headers(response.headers)
+                headers.pop("content-encoding", None)
+                headers["content-length"] = str(len(content))
                 return httpx.Response(
                     response.status_code,
-                    headers=response.headers,
+                    headers=headers,
                     content=content,
                     request=response.request,
                     extensions=response.extensions,
@@ -535,12 +546,34 @@ async def _fetch_public_url(url: str) -> httpx.Response:
 async def _read_limited_response(response: httpx.Response, max_bytes: int) -> bytes:
     chunks: list[bytes] = []
     total = 0
-    async for chunk in response.aiter_bytes():
+    async for chunk in response.aiter_raw():
         total += len(chunk)
         if total > max_bytes:
             raise ValueError(f"Article response exceeds {max_bytes} bytes")
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+def _decode_response_content(raw_content: bytes, headers: httpx.Headers) -> bytes:
+    encoding = headers.get("content-encoding", "").lower().strip()
+    if not encoding or encoding == "identity":
+        return raw_content
+
+    try:
+        if encoding == "gzip":
+            return gzip.decompress(raw_content)
+        if encoding == "deflate":
+            return zlib.decompress(raw_content)
+    except (OSError, zlib.error) as exc:
+        logger.warning(
+            "Ignoring invalid Content-Encoding=%s while fetching article: %s",
+            encoding,
+            exc,
+        )
+        return raw_content
+
+    logger.warning("Ignoring unsupported Content-Encoding=%s while fetching article", encoding)
+    return raw_content
 
 
 async def _extract_article_text(raw_html: str, url: str) -> tuple[str, str]:
