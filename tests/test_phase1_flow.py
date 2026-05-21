@@ -141,6 +141,153 @@ def test_adk_backend_adds_narration_progress(monkeypatch):
     assert summary.progress[0].detail == "adk:dry-run:mock-mode"
 
 
+def test_password_auth_redirects_and_allows_login(monkeypatch):
+    monkeypatch.setenv("APP_PASSWORD", "demo-password")
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+
+    client = TestClient(app, follow_redirects=False)
+
+    root = client.get("/")
+    assert root.status_code == 303
+    assert root.headers["location"] == "/login?next=/"
+
+    blocked_post = client.post("/summaries", data={"url": "https://example.com"})
+    assert blocked_post.status_code == 401
+    assert blocked_post.headers["hx-redirect"] == "/login"
+
+    bad_login = client.post(
+        "/login",
+        data={"password": "wrong", "next_path": "/"},
+    )
+    assert bad_login.status_code == 401
+
+    good_login = client.post(
+        "/login",
+        data={"password": "demo-password", "next_path": "/"},
+    )
+    assert good_login.status_code == 303
+    assert "gea_workshop_auth" in good_login.headers["set-cookie"]
+
+    authenticated_root = client.get("/")
+    assert authenticated_root.status_code == 200
+    assert "Blog URL to Graphic Recording" in authenticated_root.text
+
+
+def test_production_requires_app_password(monkeypatch):
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.delenv("APP_SECRET_KEY", raising=False)
+    monkeypatch.setenv("K_SERVICE", "cloud-run-service")
+
+    from web.auth import assert_auth_config
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        assert_auth_config()
+
+    monkeypatch.setenv("APP_PASSWORD", "demo-password")
+    with pytest.raises(RuntimeError, match="APP_SECRET_KEY"):
+        assert_auth_config()
+
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
+    assert_auth_config()
+
+
+def test_runtime_backend_fails_fast(monkeypatch):
+    monkeypatch.setenv("AGENT_BACKEND", "runtime")
+
+    from web.agent_client import build_agent_client
+    import asyncio
+    import pytest
+
+    client = build_agent_client()
+    with pytest.raises(RuntimeError, match="AGENT_BACKEND=runtime is not wired yet"):
+        asyncio.run(client.summarize_url("https://example.com"))
+
+
+def test_article_fetch_size_limit_helpers(monkeypatch):
+    monkeypatch.setenv("ARTICLE_FETCH_MAX_BYTES", "4096")
+
+    from agent.tools import article_fetch_max_bytes
+
+    assert article_fetch_max_bytes() == 4096
+
+    monkeypatch.setenv("ARTICLE_FETCH_MAX_BYTES", "not-a-number")
+    assert article_fetch_max_bytes() == 2_000_000
+
+
+def test_read_limited_response_rejects_oversized_body():
+    from agent.tools import _read_limited_response
+    import asyncio
+    import pytest
+
+    class Response:
+        async def aiter_bytes(self):
+            yield b"abc"
+            yield b"def"
+
+    with pytest.raises(ValueError, match="exceeds 5 bytes"):
+        asyncio.run(_read_limited_response(Response(), 5))
+
+
+def test_retryable_exception_detection():
+    from agent.tools import _is_retryable_exception
+
+    class RetryableError(Exception):
+        status_code = 429
+
+    class FatalError(Exception):
+        status_code = 400
+
+    assert _is_retryable_exception(RetryableError("quota")) is True
+    assert _is_retryable_exception(FatalError("bad request")) is False
+
+
+def test_call_with_retries_succeeds_after_retry(monkeypatch):
+    from agent import tools
+    import asyncio
+
+    class RetryableError(Exception):
+        status_code = 503
+
+    async def no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(tools.asyncio, "sleep", no_sleep)
+
+    attempts = {"count": 0}
+
+    async def operation():
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RetryableError("temporarily unavailable")
+        return "ok"
+
+    result = asyncio.run(tools._call_with_retries(lambda: operation(), "test-op"))
+
+    assert result == "ok"
+    assert attempts["count"] == 2
+
+
+def test_call_with_retries_stops_on_fatal_error():
+    from agent import tools
+    import asyncio
+    import pytest
+
+    class FatalError(Exception):
+        status_code = 400
+
+    attempts = {"count": 0}
+
+    async def operation():
+        attempts["count"] += 1
+        raise FatalError("bad request")
+
+    with pytest.raises(FatalError):
+        asyncio.run(tools._call_with_retries(lambda: operation(), "test-op"))
+
+    assert attempts["count"] == 1
+
+
 def _job_id(html: str, prefix: str) -> str:
     marker = f'id="{prefix}-'
     return prefix + "-" + html.split(marker, 1)[1].split('"', 1)[0]

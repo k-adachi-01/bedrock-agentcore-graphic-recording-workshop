@@ -24,6 +24,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ARTICLE_FETCH_MAX_BYTES = 2_000_000
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_GENAI_CLIENT = None
+
 _DEFAULT_PLAN_ITEMS = [
     "左上に URL 入力から Agent 起動までの導入を配置",
     "中央に 3 行要約を大きく配置",
@@ -81,7 +85,14 @@ def image_model_name() -> str:
 
 
 async def fetch_article(url: str) -> dict[str, str]:
-    """Fetch a public article URL and return its title plus cleaned article text."""
+    """Fetch a public article URL and return its title plus cleaned article text.
+
+    Args:
+        url: Public HTTP or HTTPS article URL to fetch.
+
+    Returns:
+        A dictionary with `title` and cleaned `text` keys.
+    """
     if is_mock_mode():
         host = urlparse(url).netloc or "example.com"
         title = f"{host} の記事から学ぶ Agent Runtime 活用"
@@ -103,7 +114,15 @@ async def fetch_article(url: str) -> dict[str, str]:
 
 
 async def summarize_article(title: str, article_text: str) -> dict[str, list[str]]:
-    """Create a Japanese 3-line summary and key points from article text."""
+    """Create a Japanese three-line summary and key points from article text.
+
+    Args:
+        title: Article title.
+        article_text: Cleaned article body text.
+
+    Returns:
+        A dictionary containing `summary_lines`, `key_points`, and `backend`.
+    """
     if is_mock_mode():
         return {
             "summary_lines": [
@@ -152,7 +171,16 @@ async def decide_style(
     key_points: list[str],
     feedback: str = "",
 ) -> StyleDecision:
-    """Choose the visual style that best fits the article summary."""
+    """Choose the visual style that best fits the article summary.
+
+    Args:
+        summary_lines: Three summary lines.
+        key_points: Important points extracted from the article.
+        feedback: Optional user feedback from regeneration.
+
+    Returns:
+        Style decision with a style name and concise reason.
+    """
     if is_mock_mode():
         return _heuristic_style_decision(summary_lines, key_points, feedback, reason_prefix="mock")
 
@@ -190,7 +218,16 @@ async def decide_style(
 
 
 async def create_visual_plan(summary_lines: list[str], key_points: list[str], feedback: str = "") -> list[str]:
-    """Create composition instructions for a graphic recording image."""
+    """Create composition instructions for a graphic recording image.
+
+    Args:
+        summary_lines: Three summary lines to visualize.
+        key_points: Important points to include in the composition.
+        feedback: Optional user feedback from regeneration.
+
+    Returns:
+        A list of Japanese visual composition instructions.
+    """
     return await create_visual_plan_for_style(summary_lines, key_points, feedback, style="business")
 
 
@@ -200,7 +237,17 @@ async def create_visual_plan_for_style(
     feedback: str = "",
     style: str = "business",
 ) -> list[str]:
-    """Create composition instructions for a graphic recording image using the selected style."""
+    """Create composition instructions for a graphic recording image using the selected style.
+
+    Args:
+        summary_lines: Three summary lines to visualize.
+        key_points: Important points to include in the composition.
+        feedback: Optional user feedback from regeneration.
+        style: Selected visual style. Expected values are `business`, `pop`, or `minimal`.
+
+    Returns:
+        A list of Japanese visual composition instructions.
+    """
     if is_mock_mode():
         plan = _default_plan_items_for_style(style)
         if feedback.strip():
@@ -240,7 +287,14 @@ async def create_visual_plan_for_style(
 
 
 async def generate_image(visual_plan: list[str]) -> str:
-    """Generate a graphic recording image with Gemini image model and return raw image data."""
+    """Generate a graphic recording image and return SVG-compatible markup.
+
+    Args:
+        visual_plan: Composition instructions for the image model.
+
+    Returns:
+        SVG markup wrapping the generated image, or an empty string on fallback.
+    """
     image = await generate_image_artifact(visual_plan)
     if not image.data:
         return ""
@@ -248,7 +302,15 @@ async def generate_image(visual_plan: list[str]) -> str:
 
 
 async def generate_image_artifact(visual_plan: list[str], style: str = "business") -> GeneratedImage:
-    """Generate a graphic recording image with Gemini image model for artifact storage."""
+    """Generate a graphic recording image with Gemini image model for artifact storage.
+
+    Args:
+        visual_plan: Composition instructions for the image model.
+        style: Selected visual style used to tune the image prompt.
+
+    Returns:
+        Generated image bytes and metadata, or an empty payload that signals SVG fallback.
+    """
     if is_mock_mode():
         return GeneratedImage(b"", "", "fallback-svg:mock-mode")
     if not has_gemini_credentials():
@@ -304,6 +366,19 @@ async def render_svg(
     feedback: str = "",
     style: str = "business",
 ) -> str:
+    """Render a deterministic fallback SVG graphic recording.
+
+    Args:
+        title: Article title.
+        summary_lines: Three summary lines to render.
+        key_points: Important points to render.
+        visual_plan: Composition instructions selected by the agent pipeline.
+        feedback: Optional user feedback from regeneration.
+        style: Selected visual style.
+
+    Returns:
+        SVG markup for the generated fallback artifact.
+    """
     palette = _style_palette(style, feedback)
     accent = palette["accent"]
     safe_title = html.escape(title)
@@ -373,18 +448,39 @@ async def render_svg(
 
 
 async def save_artifact(session_id: str, svg: str) -> str:
+    """Save a generated SVG artifact locally and optionally mirror it to Cloud Storage.
+
+    Args:
+        session_id: Stable session identifier used as the artifact filename.
+        svg: SVG markup to save.
+
+    Returns:
+        Local artifact path.
+    """
     artifact_dir = Path(os.getenv("ARTIFACT_DIR", "artifacts"))
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{session_id}.svg"
     path.write_text(svg, encoding="utf-8")
+    await _upload_artifact_to_gcs(path, "image/svg+xml")
     return str(path)
 
 
 async def save_binary_artifact(session_id: str, data: bytes, mime_type: str) -> str:
+    """Save a generated binary artifact locally and optionally mirror it to Cloud Storage.
+
+    Args:
+        session_id: Stable session identifier used as the artifact filename.
+        data: Binary artifact bytes.
+        mime_type: MIME type for file extension and Cloud Storage metadata.
+
+    Returns:
+        Local artifact path.
+    """
     artifact_dir = Path(os.getenv("ARTIFACT_DIR", "artifacts"))
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{session_id}{_extension_for_mime_type(mime_type)}"
     path.write_bytes(data)
+    await _upload_artifact_to_gcs(path, mime_type)
     return str(path)
 
 
@@ -392,21 +488,59 @@ def artifact_url_for_path(artifact_path: str) -> str:
     return f"/artifacts/{Path(artifact_path).name}"
 
 
+async def _upload_artifact_to_gcs(path: Path, content_type: str) -> None:
+    bucket_name = os.getenv("GCS_BUCKET")
+    if not bucket_name:
+        return
+
+    def upload() -> None:
+        from google.cloud import storage
+
+        prefix = os.getenv("GCS_ARTIFACT_PREFIX", "artifacts").strip("/")
+        object_name = f"{prefix}/{path.name}" if prefix else path.name
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(object_name)
+        blob.upload_from_filename(str(path), content_type=content_type)
+
+    try:
+        await asyncio.to_thread(upload)
+    except Exception as exc:
+        logger.warning("Cloud Storage artifact upload failed: %s", exc)
+
+
 async def _fetch_public_url(url: str) -> httpx.Response:
     current_url = url
     async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
         for _ in range(5):
             await _assert_public_http_url(current_url)
-            response = await client.get(current_url)
-            if response.is_redirect:
-                location = response.headers.get("location")
-                if not location:
-                    break
-                current_url = urljoin(str(response.url), location)
-                continue
-            response.raise_for_status()
-            return response
+            async with client.stream("GET", current_url) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+                    current_url = urljoin(str(response.url), location)
+                    continue
+                response.raise_for_status()
+                content = await _read_limited_response(response, article_fetch_max_bytes())
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    content=content,
+                    request=response.request,
+                    extensions=response.extensions,
+                )
     raise ValueError("Too many redirects while fetching article")
+
+
+async def _read_limited_response(response: httpx.Response, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > max_bytes:
+            raise ValueError(f"Article response exceeds {max_bytes} bytes")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def _extract_article_text(raw_html: str, url: str) -> tuple[str, str]:
@@ -433,15 +567,17 @@ async def _generate_structured_content(prompt: str, schema_model):
             "GEMINI_API_KEY, GOOGLE_API_KEY, or Vertex AI Gemini environment settings are required"
         )
 
-    client = _build_genai_client()
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model=text_model_name(),
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": schema_model,
-        },
+    async_client = _get_genai_client().aio
+    response = await _call_with_retries(
+        lambda: async_client.models.generate_content(
+            model=text_model_name(),
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": schema_model,
+            },
+        ),
+        operation="gemini-structured-content",
     )
     if response.parsed is not None:
         return response.parsed
@@ -451,15 +587,17 @@ async def _generate_structured_content(prompt: str, schema_model):
 async def _generate_image_data(prompt: str) -> tuple[bytes, str]:
     from google.genai import types
 
-    client = _build_genai_client()
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model=image_model_name(),
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=[types.Modality.TEXT, types.Modality.IMAGE],
-            candidate_count=1,
+    async_client = _get_genai_client().aio
+    response = await _call_with_retries(
+        lambda: async_client.models.generate_content(
+            model=image_model_name(),
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=[types.Modality.TEXT, types.Modality.IMAGE],
+                candidate_count=1,
+            ),
         ),
+        operation="gemini-image-generation",
     )
     if not response.candidates:
         return b"", "image/png"
@@ -473,23 +611,90 @@ async def _generate_image_data(prompt: str) -> tuple[bytes, str]:
     return b"", "image/png"
 
 
+def _get_genai_client():
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is None:
+        _GENAI_CLIENT = _build_genai_client()
+    return _GENAI_CLIENT
+
+
 def _build_genai_client():
     from google import genai
 
     return genai.Client()
 
 
+def close_genai_client() -> None:
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is None:
+        return
+    close = getattr(_GENAI_CLIENT, "close", None)
+    if close:
+        close()
+    _GENAI_CLIENT = None
+
+
+async def _call_with_retries(operation_factory, operation: str):
+    max_attempts = max(1, int(os.getenv("GEMINI_MAX_ATTEMPTS", "3")))
+    base_delay = max(0.1, float(os.getenv("GEMINI_RETRY_BASE_DELAY_SECONDS", "0.6")))
+    last_error: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await operation_factory()
+        except Exception as exc:
+            last_error = exc
+            if attempt >= max_attempts or not _is_retryable_exception(exc):
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "%s failed with retryable error on attempt %s/%s; retrying in %.1fs: %s",
+                operation,
+                attempt,
+                max_attempts,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError(f"{operation} failed") from last_error
+
+
+def _is_retryable_exception(exc: Exception) -> bool:
+    status_code = _exception_status_code(exc)
+    if status_code in RETRYABLE_STATUS_CODES:
+        return True
+    message = str(exc)
+    return any(str(code) in message for code in RETRYABLE_STATUS_CODES)
+
+
+def _exception_status_code(exc: Exception) -> Optional[int]:
+    for attr in ("status_code", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+        enum_value = getattr(value, "value", None)
+        if isinstance(enum_value, int):
+            return enum_value
+
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    return status_code if isinstance(status_code, int) else None
+
+
 def has_gemini_credentials() -> bool:
     if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
         return True
-    return bool(
-        _use_vertex_ai()
-        and os.getenv("GOOGLE_CLOUD_PROJECT")
-        and os.getenv("GOOGLE_CLOUD_LOCATION")
-    )
+    return _use_vertex_ai()
+
 
 def _use_vertex_ai() -> bool:
     return os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in {"1", "true", "yes", "on"}
+
+
+def article_fetch_max_bytes() -> int:
+    try:
+        return max(1024, int(os.getenv("ARTICLE_FETCH_MAX_BYTES", str(DEFAULT_ARTICLE_FETCH_MAX_BYTES))))
+    except ValueError:
+        return DEFAULT_ARTICLE_FETCH_MAX_BYTES
 
 
 def display_model_name(model_name: str) -> str:
