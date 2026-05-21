@@ -52,6 +52,12 @@ public repository として公開する前に確認する項目です。
 
 - 手順書に project ID, region, service name の置換箇所が明示されている
 - 個人 Google アカウント参加者向けに Cloud Shell 推奨手順がある
+- 開場〜開始前の Phase 0 手順がある
+- `constraints-workshop.txt` を使った依存固定 install 手順がある
+- `scripts/preflight-cloud-shell.sh` で事前確認できる
+- `scripts/diagnose-deployment.sh` で TA が状態を確認できる
+- Cloud Shell Web Preview を使う mock fallback 手順がある
 - 参加者に課金とリソース削除を案内する
+- `scripts/cleanup-gcp-resources.sh` は確認 prompt 付きで、project 削除は docs 案内に留める
 - デプロイ失敗時の切り戻し手順がある
 - 生成物や入力 URL に機密情報を入れないよう案内する

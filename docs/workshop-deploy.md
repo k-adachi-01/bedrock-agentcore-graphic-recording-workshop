@@ -4,6 +4,48 @@
 
 ローカル PC での実行は推奨しません。ワークショップ参加者は個人 Google アカウントで参加する想定のため、ローカル `gcloud` の会社アカウント、ADC quota project、Python version の混線を避けるためです。
 
+## Phase 0. 開場〜開始前にここまで進める
+
+開場時は、早く来た人から次を進めます。ここまで終わっていると、本編では Agent Runtime / Cloud Run の deploy と smoke test に集中できます。
+
+```bash
+git clone REPOSITORY_URL
+cd "Gemini Enterprise Agent Platform"
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt -c constraints-workshop.txt
+
+export PROJECT_ID="YOUR_PROJECT_ID"
+export REGION="asia-northeast1"
+export AGENT_RUNTIME_LOCATION="us-central1"
+export GOOGLE_CLOUD_LOCATION="global"
+export SERVICE_NAME="graphic-recording-agent-demo"
+export APP_PASSWORD="workshop-demo-password"
+export APP_SECRET_KEY="$(openssl rand -hex 32)"
+export GEMINI_TEXT_MODEL="gemini-3.5-flash"
+export GEMINI_IMAGE_MODEL="gemini-3-pro-image-preview"
+export ARTICLE_FETCH_MAX_BYTES="2000000"
+export GCS_BUCKET="${PROJECT_ID}-graphic-recording-artifacts"
+export AGENT_RUNTIME_STAGING_BUCKET="${GCS_BUCKET}"
+export GCS_ARTIFACT_PREFIX="artifacts"
+export GCS_SIGNED_URL_TTL_SECONDS="28800"
+
+gcloud config set project "${PROJECT_ID}"
+gcloud auth application-default login
+gcloud auth application-default set-quota-project "${PROJECT_ID}"
+
+./scripts/preflight-cloud-shell.sh
+./scripts/bootstrap-gcp-project.sh
+```
+
+`preflight-cloud-shell.sh` が失敗した場合は、表示された `[NG]` を直してから再実行してください。成功すると次のコマンドとして `./scripts/bootstrap-gcp-project.sh` が表示されます。
+
+## Phase 1. Workshop 本編の流れ
+
+本編では、まず全体構成を確認し、その後は Section 5 以降の bucket / IAM / Agent Runtime / Cloud Run deploy に進みます。deploy 待ち時間は、講師が ADK、tool 設計、JSON contract、signed URL の説明に使います。
+
 ## 0. 全体構成
 
 - Cloud Run: Web UI、ログイン、HTMX polling、Agent Runtime 呼び出し
@@ -54,8 +96,10 @@ python3 --version
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt -c constraints-workshop.txt
 ```
+
+`constraints-workshop.txt` はワークショップ用の provisional pin です。public repository を Cloud Shell で E2E 検証した後、Cloud Shell 上の `python -m pip freeze > constraints-workshop.txt` で最終版に更新します。
 
 ## 3. 環境変数を設定
 
@@ -90,6 +134,7 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project "${PROJECT_ID}"
 gcloud auth application-default print-access-token >/dev/null && echo "ADC ok"
 gcloud beta billing projects describe "${PROJECT_ID}"
+./scripts/preflight-cloud-shell.sh
 ```
 
 `billingEnabled: true` になっていない場合は、Console で billing を紐づけてから進んでください。
@@ -238,7 +283,34 @@ https://zenn.dev/ubie_dev/articles/modern-web-guidance
 https://developer.chrome.com/docs/modern-web-guidance/get-started?hl=en
 ```
 
-## 10. ログ確認
+## 10. Plan B: Cloud Shell mock fallback
+
+Billing、IAM、Agent Runtime deploy で詰まり、時間内に復旧できない参加者は mock fallback に切り替えます。GCP deploy は完了しませんが、Cloud Shell の Web Preview でアプリの体験を確認できます。
+
+Cloud Shell ターミナルで起動します。
+
+```bash
+export MOCK_MODE="true"
+export AGENT_BACKEND="local"
+export APP_PASSWORD="mock"
+export APP_SECRET_KEY="mock-secret-key-for-local-only"
+
+python -m uvicorn web.main:app --host 0.0.0.0 --port 8080
+```
+
+起動したら、Cloud Shell 右上の **Web Preview** から **Preview on port 8080** を開きます。ログインパスワードは `mock` です。
+
+この fallback はデモ体験用です。Agent Runtime、Cloud Run、Cloud Storage、signed URL は使いません。参加者が講義内容を追うための避難経路として扱ってください。
+
+## 11. ログ確認
+
+TA に相談する場合は、まず診断 script の出力を共有してください。
+
+```bash
+./scripts/diagnose-deployment.sh
+```
+
+先頭の `SUMMARY` だけで、Cloud Run、Agent Runtime、bucket、直近エラーの大半を切り分けられます。必要な場合だけ `DETAILS` 以降を確認します。
 
 Cloud Run logs:
 
@@ -266,7 +338,7 @@ gcloud storage ls -r "gs://${GCS_BUCKET}/agent_engine/**"
 gcloud storage ls -r "gs://${GCS_BUCKET}/${GCS_ARTIFACT_PREFIX}/**" | tail
 ```
 
-## 11. よくあるエラー
+## 12. よくあるエラー
 
 ### Billing が無効
 
@@ -328,7 +400,7 @@ Publisher Model ... locations/us-central1 ... gemini-3.5-flash was not found
 
 対処: `./scripts/configure-runtime-iam.sh` を再実行し、Cloud Run service account を signer にして Runtime effective identity に `roles/iam.serviceAccountTokenCreator` が付いていることを確認します。
 
-## 12. コスト確認
+## 13. コスト確認
 
 正確な発生額は、この repository や `gcloud` の通常コマンドだけでは分かりません。Cloud Billing Console で project filter をかけて確認します。
 
@@ -351,66 +423,41 @@ Publisher Model ... locations/us-central1 ... gemini-3.5-flash was not found
 
 短時間の spike でも画像生成と Agent Runtime は課金対象になり得ます。ワークショップ後は必ず後片付けしてください。
 
-## 13. 後片付け
+## 14. 後片付け
 
-Cloud Run:
-
-```bash
-gcloud run services delete "${SERVICE_NAME}" \
-  --region "${REGION}" \
-  --quiet
-```
-
-Cloud Storage:
+まず script で workshop リソースを削除します。`--yes` を付けない場合は、確認 prompt で `delete` と入力しない限り削除されません。
 
 ```bash
-gcloud storage rm --recursive "gs://${GCS_BUCKET}"
+./scripts/cleanup-gcp-resources.sh
 ```
 
-Agent Runtime:
-
-一覧確認:
+自動実行やリハーサルで confirmation を省略したい場合だけ、明示的に `--yes` を付けます。
 
 ```bash
-python - <<'PY'
-import os
-import vertexai
-
-client = vertexai.Client(
-    project=os.environ["PROJECT_ID"],
-    location=os.environ.get("AGENT_RUNTIME_LOCATION", "us-central1"),
-)
-for agent in client.agent_engines.list():
-    print(agent.api_resource.name, agent.api_resource.display_name)
-PY
+./scripts/cleanup-gcp-resources.sh --yes
 ```
 
-削除:
+削除前に状態を見たい場合:
 
 ```bash
-python - <<'PY'
-import os
-import vertexai
-
-client = vertexai.Client(
-    project=os.environ["PROJECT_ID"],
-    location=os.environ.get("AGENT_RUNTIME_LOCATION", "us-central1"),
-)
-client.agent_engines.delete(
-    name=os.environ["AGENT_RUNTIME_RESOURCE_NAME"],
-    force=True,
-)
-print(f"Deleted {os.environ['AGENT_RUNTIME_RESOURCE_NAME']}")
-PY
+./scripts/diagnose-deployment.sh
 ```
 
-Disposable project の場合は、project ごと削除するのが最も確実です。
+この cleanup script は Google Cloud project 自体は削除しません。
+
+Disposable project の場合は、project ごと削除するのが最も確実です。ただし、これは **ワークショップ専用に作った disposable project 限定** です。個人利用中の project や会社 project では実行しないでください。削除前に Console の project selector と `PROJECT_ID` を必ず確認してください。
+
+```bash
+gcloud projects describe "${PROJECT_ID}"
+```
+
+問題なければ project を削除します。削除すると project 内のリソースは復元できません。
 
 ```bash
 gcloud projects delete "${PROJECT_ID}"
 ```
 
-## 14. 公開前チェック
+## 15. 公開前チェック
 
 運営者は public repository に push する前に必ず実行します。
 
@@ -418,9 +465,16 @@ gcloud projects delete "${PROJECT_ID}"
 python -m pip install -e '.[dev]'
 python -m pytest
 ./scripts/check-publication-safety.sh
+bash -n scripts/*.sh
 git diff --check
 git status --short
 git log --all --oneline -- .env
 ```
 
 `.env`, `.venv`, `.python-version`, `artifacts/`, local screenshots, local backup directories を commit しないでください。
+
+`constraints-workshop.txt` は、public repository を Cloud Shell で clone して E2E 検証が通った後、Cloud Shell 上で次を実行して最終化します。
+
+```bash
+python -m pip freeze > constraints-workshop.txt
+```
