@@ -65,11 +65,34 @@ class LocalAgentClient:
 
 
 class RuntimeAgentClient(LocalAgentClient):
-    """Placeholder for Agent Runtime.
+    """Agent Runtime integration boundary.
 
-    Phase 1 intentionally falls back to the local mock implementation so the
-    complete demo works without external services.
+    This intentionally fails fast until the remote workflow contract is wired.
+    A silent local fallback would make Cloud Run deployments look successful
+    while bypassing Agent Runtime entirely.
     """
+
+    async def summarize_url(
+        self,
+        url: str,
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> SummaryResult:
+        raise _runtime_not_configured()
+
+    async def generate_graphic_recording(
+        self,
+        summary: SummaryResult,
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> GraphicResult:
+        raise _runtime_not_configured()
+
+    async def regenerate_graphic_recording(
+        self,
+        summary: SummaryResult,
+        feedback: str,
+        on_progress: Optional[ProgressCallback] = None,
+    ) -> GraphicResult:
+        raise _runtime_not_configured()
 
 
 class AdkAgentClient(LocalAgentClient):
@@ -162,3 +185,11 @@ def build_agent_client() -> AgentClient:
     if backend == "runtime":
         return RuntimeAgentClient()
     return LocalAgentClient()
+
+
+def _runtime_not_configured() -> RuntimeError:
+    return RuntimeError(
+        "AGENT_BACKEND=runtime is not wired yet. Deploy with AGENT_BACKEND=adk "
+        "for the workshop path, or implement RuntimeAgentClient against the "
+        "Agent Runtime async_stream_query contract before enabling runtime mode."
+    )
