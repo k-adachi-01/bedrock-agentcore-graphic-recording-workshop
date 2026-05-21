@@ -14,6 +14,7 @@ public repository として公開する前に確認する項目です。
 
 - 完全新規 project 用の API 有効化手順がある
 - Billing は Console で手作業確認することが明記されている
+- Agent Runtime deploy 用に Python 3.10+ が必要なことが明記されている
 - Cloud Build / Artifact Registry を source deployment の前提として説明している
 - `compute.googleapis.com` と default runtime service account の扱いが明記されている
 - API 有効化 / service agent 作成の propagation 待ちが明記されている
@@ -27,6 +28,7 @@ public repository として公開する前に確認する項目です。
 - stdout が JSON ログになっている
 - `--allow-unauthenticated` は Cloud Run IAM の認証を外すだけで、アプリ内パスワードで保護する
 - in-memory state のため `--max-instances 1` を維持する
+- background workflow のため Cloud Run の CPU throttling を無効化する
 - 複数インスタンス化する場合は `sessions`, `jobs`, `graphics` を Firestore などに移す
 
 ## Gemini / URL fetch
@@ -40,13 +42,16 @@ public repository として公開する前に確認する項目です。
 ## Agent Runtime
 
 - `agent/runtime_entrypoint.py` の `root_agent` が deploy entrypoint
-- `AGENT_BACKEND=runtime` は未実装時に fail-fast する
-- Runtime 呼び出しを実装するまでは Cloud Run は `AGENT_BACKEND=adk` で運用する
-- Runtime 実装時は `async_stream_query` の入出力 contract を固定し、テストを追加する
+- `agent/runtime_contract.py` の入出力 contract を Agent 側と Client 側で共有する
+- `AGENT_BACKEND=runtime` では `AGENT_RUNTIME_RESOURCE_NAME` を必須にする
+- Runtime artifact は Cloud Storage に保存し、signed URL で画面表示する
+- Runtime backend でグラレコ生成する場合は `GCS_BUCKET` を必須にする
+- signed URL 生成用に `roles/iam.serviceAccountTokenCreator` と `GCS_SIGNING_SERVICE_ACCOUNT` の手順がある
 
 ## ワークショップ運営
 
 - 手順書に project ID, region, service name の置換箇所が明示されている
+- 個人 Google アカウント参加者向けに Cloud Shell 推奨手順がある
 - 参加者に課金とリソース削除を案内する
 - デプロイ失敗時の切り戻し手順がある
 - 生成物や入力 URL に機密情報を入れないよう案内する

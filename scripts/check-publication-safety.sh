@@ -19,7 +19,9 @@ fi
 if grep -R --line-number \
   --exclude-dir=.git \
   --exclude-dir=.venv \
+  --exclude-dir='.venv-*' \
   --exclude-dir=.pytest_cache \
+  --exclude-dir=__pycache__ \
   --exclude-dir=artifacts \
   --include='*.py' --include='*.html' --include='*.md' --include='*.sh' \
   -E 'AIza[0-9A-Za-z_-]{35}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' .; then

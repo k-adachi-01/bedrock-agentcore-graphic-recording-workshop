@@ -1,196 +1,359 @@
 # Workshop Deployment Guide
 
-この手順は、参加者が public GitHub repository を clone し、自分の Google Cloud project にデモをデプロイする前提です。
+この手順は、参加者が **GitHub public repository を Google Cloud Shell で clone** し、自分の新規 Google Cloud project にデモをデプロイして、Cloud Run URL で動作確認するところまでを対象にします。
 
-## 前提
+ローカル PC での実行は推奨しません。ワークショップ参加者は個人 Google アカウントで参加する想定のため、ローカル `gcloud` の会社アカウント、ADC quota project、Python version の混線を避けるためです。
 
-- Google Cloud project を 1 つ用意する。新規 project でも既存 project でも可
-- 課金が有効化されている。これは通常 Google Cloud Console で手作業確認が必要
-- `gcloud` が使える
-- Cloud Run を public URL で公開し、アプリ内の簡易パスワードで保護する
-- ワークショップ用の disposable project で実行する。同じ project の他の Cloud Run / GCE と権限を共有するため、組織の本番 project では実行しない
+## 0. 全体構成
 
-参考:
+- Cloud Run: Web UI、ログイン、HTMX polling、Agent Runtime 呼び出し
+- Agent Runtime: ADK workflow agent の実行、記事取得、要約、style 判断、画像生成
+- Vertex AI / Gemini: text model と image model
+- Cloud Storage: Agent Runtime が生成した画像 artifact の保存
+- Signed URL: 非公開 bucket の画像をブラウザに表示
 
-- Cloud Run source deployment: https://docs.cloud.google.com/run/docs/deploying-source-code
-- Cloud Run source deployment service account: https://docs.cloud.google.com/run/docs/configuring/services/build-service-account
-- Agent Runtime deployment: https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/deploy-an-agent
-- ADK on Agent Runtime: https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/use-an-adk-agent
+重要な設計判断:
 
-## 0. 完全新規 project の手作業
+- Agent Runtime の local filesystem は Cloud Run から見えないため、生成物は Cloud Storage に置く
+- Cloud Run は UI と polling に集中し、workflow は Agent Runtime に寄せる
+- Runtime から Cloud Run へ返す値は `agent/runtime_contract.py` の JSON contract で固定する
+- v1 は安定性を優先し、Runtime 完了後に progress をまとめて表示する
 
-完全新規 project の場合、次は手作業になることがあります。
+## 1. 事前準備
 
-1. Google Cloud Console で project を作成する
+Google Cloud Console で次を済ませます。
+
+1. 新規 project を作成する
 2. Billing account を project に紐づける
-3. Vertex AI / Gemini API の利用規約や組織ポリシーが出た場合は承認する
-4. 会社・学校アカウントの場合、API 有効化や IAM 付与が制限されていないか確認する
+3. Vertex AI / Gemini API の利用規約が表示された場合は承認する
+4. Console 上部の project selector で対象 project を選ぶ
+5. Cloud Shell を開く
 
-CLI で project を作れる環境なら次でも構いません。
+以後のコマンドは Cloud Shell で実行します。
 
-```bash
-export PROJECT_ID="YOUR_UNIQUE_PROJECT_ID"
-gcloud projects create "${PROJECT_ID}" --name="Gemini Agent Workshop"
-```
+## 2. Repository を clone
 
-Billing account の紐づけは環境ごとに違うため、この手順書では Console で確認する前提にしています。課金が無効だと Cloud Build / Cloud Run / Vertex AI の途中で失敗します。
-
-## 1. ローカル準備
+`REPOSITORY_URL` は public GitHub repository の URL に置き換えます。
 
 ```bash
 git clone REPOSITORY_URL
 cd "Gemini Enterprise Agent Platform"
-
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
 ```
 
-`.env` は Git に入れないでください。`.gitignore`, `.dockerignore`, `.gcloudignore` で除外済みです。
+Cloud Shell の Python が 3.10 以上であることを確認します。
 
-## 2. Google Cloud の準備
+```bash
+python3 --version
+```
+
+3.10 未満の場合、この手順では進めないでください。Agent Runtime deploy で使う Agent Engine SDK / MCP が Python 3.10+ を要求します。
+
+依存関係をインストールします。
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+```
+
+## 3. 環境変数を設定
+
+`PROJECT_ID` は自分の project ID に置き換えます。`APP_PASSWORD` はワークショップ用のログインパスワードです。
 
 ```bash
 export PROJECT_ID="YOUR_PROJECT_ID"
 export REGION="asia-northeast1"
+export AGENT_RUNTIME_LOCATION="us-central1"
+export GOOGLE_CLOUD_LOCATION="global"
 
-gcloud auth login
-gcloud auth application-default login
-gcloud config set project "${PROJECT_ID}"
-gcloud auth application-default set-quota-project "${PROJECT_ID}"
-
-./scripts/bootstrap-gcp-project.sh
-```
-
-Cloud Run の source deployment では Cloud Build と Artifact Registry が使われます。対象 region に `cloud-run-source-deploy` repository が無い場合、Cloud Run source deployment が Artifact Registry repository を自動作成します。
-
-`bootstrap-gcp-project.sh` はデプロイ前準備だけを行います。Cloud Run / Agent Runtime へのデプロイは実行しません。
-
-### 必要な API
-
-新規 project では少なくとも次を有効化します。
-
-- `run.googleapis.com`
-- `cloudbuild.googleapis.com`
-- `artifactregistry.googleapis.com`
-- `aiplatform.googleapis.com`
-- `storage.googleapis.com`
-- `compute.googleapis.com`
-- `iam.googleapis.com`
-- `iamcredentials.googleapis.com`
-- `logging.googleapis.com`
-- `cloudresourcemanager.googleapis.com`
-- `serviceusage.googleapis.com`
-
-### IAM の目安
-
-ワークショップ参加者が project owner の場合は、通常このまま進められます。最小権限で運用する場合は、少なくとも次を確認してください。
-
-- デプロイする人: `roles/run.sourceDeveloper`, `roles/serviceusage.serviceUsageConsumer`, Cloud Run runtime service account に対する `roles/iam.serviceAccountUser`
-- API を有効化する人: `roles/serviceusage.serviceUsageAdmin`
-- Cloud Build service account: project に対する `roles/run.builder`
-- Cloud Run runtime service account: Gemini / Vertex AI 呼び出し用に `roles/aiplatform.user`
-- GCS artifact 保存を使う場合: runtime service account に bucket への `roles/storage.objectAdmin`
-
-Cloud Run runtime service account は、明示しない場合 `${PROJECT_NUMBER}-compute@developer.gserviceaccount.com` です。`bootstrap-gcp-project.sh` はこの default runtime service account に `roles/aiplatform.user` を付与します。
-
-この手順は簡単さを優先し、default compute service account を Cloud Run runtime service account として使います。`compute.googleapis.com` は、この default service account を確実に materialize するために有効化します。より厳密に分離したい場合は、Cloud Run 専用 service account を作成し、`roles/aiplatform.user` と必要な GCS 権限だけを付与してください。
-
-`bootstrap-gcp-project.sh` は Cloud Build service agent に `roles/run.builder` も付与します。組織ポリシーや既存 IAM の状態によっては手動確認が必要です。
-
-API 有効化や service agent 作成は反映に時間がかかることがあります。`./scripts/bootstrap-gcp-project.sh` が成功した直後の deploy で `SERVICE_DISABLED` や service account 関連のエラーが出た場合は、1-2 分待って同じコマンドを再実行してください。
-
-### よくある準備段階の失敗
-
-- `Billing account ... is disabled`: Billing account を Console で紐づける
-- `SERVICE_DISABLED`: 必要 API が無効。`./scripts/bootstrap-gcp-project.sh` を再実行する
-- `Permission denied to enable service`: API 有効化権限がない。管理者に `roles/serviceusage.serviceUsageAdmin` を依頼する
-- `iam.serviceAccounts.actAs denied`: Cloud Run runtime service account に対する `roles/iam.serviceAccountUser` がない
-- `cloudbuild.builds.create denied`: Cloud Build 実行権限がない
-- `Artifact Registry repository ...`: `artifactregistry.googleapis.com` が無効、または region / 権限の問題
-- `Service account ... does not exist`: `compute.googleapis.com` や service agent 作成の反映待ち。1-2 分後に `./scripts/bootstrap-gcp-project.sh` を再実行する
-
-## 3. Cloud Run にデプロイ
-
-この段階では Agent Runtime 連携をまだ有効化せず、Cloud Run 上の FastAPI アプリから ADK backend を実行します。
-
-```bash
 export SERVICE_NAME="graphic-recording-agent-demo"
 export APP_PASSWORD="workshop-demo-password"
 export APP_SECRET_KEY="$(openssl rand -hex 32)"
-export AGENT_BACKEND="adk"
+
 export GEMINI_TEXT_MODEL="gemini-3.5-flash"
 export GEMINI_IMAGE_MODEL="gemini-3-pro-image-preview"
 export ARTICLE_FETCH_MAX_BYTES="2000000"
 
-./scripts/deploy-cloud-run.sh
-```
-
-デプロイ後、表示された Cloud Run URL を開くとログイン画面が出ます。`APP_PASSWORD` に設定した値でログインします。
-
-再デプロイ時は同じ `APP_SECRET_KEY` を使ってください。値を変えると既存のログイン cookie はすべて無効になります。ワークショップ中に再デプロイする場合は、shell history やメモに控えた値を再 export してから実行します。
-
-現状のアプリは `sessions`, `jobs`, `graphics` を in-memory dict で持つため、Cloud Run は `--max-instances 1` でデプロイしています。複数インスタンスにする場合は Firestore などへ状態を外出ししてください。
-
-`scripts/deploy-cloud-run.sh` は `/healthz` を startup / liveness probe に設定します。Cloud Run の probe は Dockerfile の `HEALTHCHECK` ではなく Cloud Run service revision の設定として扱います。
-
-この Dockerfile は non-root user でアプリを起動します。生成 artifact をローカルにも保存するため、container 内の `/app` は build 時に `app` user へ chown しています。
-
-生成物を Cloud Storage にも保存したい場合は、先に bucket を作成して `GCS_BUCKET` を設定します。
-
-```bash
 export GCS_BUCKET="${PROJECT_ID}-graphic-recording-artifacts"
-gcloud storage buckets create "gs://${GCS_BUCKET}" --location="${REGION}"
-
-PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-gcloud storage buckets add-iam-policy-binding "gs://${GCS_BUCKET}" \
-  --member "serviceAccount:${RUNTIME_SA}" \
-  --role "roles/storage.objectAdmin"
-
-gcloud run services update "${SERVICE_NAME}" \
-  --region "${REGION}" \
-  --update-env-vars "GCS_BUCKET=${GCS_BUCKET},GCS_ARTIFACT_PREFIX=artifacts"
+export AGENT_RUNTIME_STAGING_BUCKET="${GCS_BUCKET}"
+export GCS_ARTIFACT_PREFIX="artifacts"
+export GCS_SIGNED_URL_TTL_SECONDS="28800"
 ```
 
-この実装では、画面表示は現インスタンスの `/artifacts` を使い、永続バックアップとして同じ生成物を Cloud Storage にアップロードします。
-
-## 4. Agent Runtime に ADK Agent をデプロイ
-
-Agent Runtime は Python のみ対応です。このリポジトリでは `agent/runtime_entrypoint.py` の `root_agent` を Agent Runtime 用 entrypoint として用意しています。
+Project と認証状態を確認します。
 
 ```bash
-export PROJECT_ID="YOUR_PROJECT_ID"
-export AGENT_RUNTIME_LOCATION="us-central1"
+gcloud config set project "${PROJECT_ID}"
+gcloud auth list
+gcloud auth application-default login
+gcloud auth application-default set-quota-project "${PROJECT_ID}"
+gcloud auth application-default print-access-token >/dev/null && echo "ADC ok"
+gcloud beta billing projects describe "${PROJECT_ID}"
+```
+
+`billingEnabled: true` になっていない場合は、Console で billing を紐づけてから進んでください。
+
+## 4. API と基本 IAM を準備
+
+```bash
+./scripts/bootstrap-gcp-project.sh
+```
+
+成功すると project number と Cloud Run runtime service account が表示されます。
+
+```bash
+export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+export CLOUD_RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+export GCS_SIGNING_SERVICE_ACCOUNT="${CLOUD_RUN_SA}"
+```
+
+## 5. Artifact bucket を作成
+
+```bash
+gcloud storage buckets create "gs://${GCS_BUCKET}" --location="${REGION}"
+```
+
+同じ bucket を次の 2 用途で使います。
+
+- Agent Runtime deploy の staging bucket
+- 生成画像 artifact の保存先
+
+既に bucket が存在する場合は、`gcloud storage buckets create` は失敗します。その場合は bucket 名が自分の project 用であることを確認して先に進みます。
+
+## 6. Runtime IAM を設定
+
+次の script が、今回ハマった IAM 差分をまとめて処理します。
+
+```bash
+./scripts/configure-runtime-iam.sh
+```
+
+この script は次を行います。
+
+- Vertex AI service identity を作成または確認
+- Cloud Run default service account に bucket 書き込み権限を付与
+- `gcp-sa-aiplatform` と `gcp-sa-aiplatform-re` の Runtime 系 service agent に bucket 書き込み権限を付与
+- Runtime 系 service agent に Cloud Run default service account で signed URL を作るための `roles/iam.serviceAccountTokenCreator` を付与
+
+script の最後に表示される値を export します。
+
+```bash
+export CLOUD_RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+export GCS_SIGNING_SERVICE_ACCOUNT="${CLOUD_RUN_SA}"
+```
+
+## 7. Agent Runtime を deploy
+
+```bash
 export AGENT_DISPLAY_NAME="graphic-recording-agent"
+export AGENT_RUNTIME_STAGING_BUCKET="${GCS_BUCKET}"
+export GCS_SIGNING_SERVICE_ACCOUNT="${CLOUD_RUN_SA}"
+export GOOGLE_CLOUD_LOCATION="global"
 
 python scripts/deploy-agent-runtime.py
 ```
 
-成功すると次の形式の resource name が出力されます。
+成功すると次のような出力になります。
 
 ```text
-projects/PROJECT_NUMBER/locations/LOCATION/reasoningEngines/RESOURCE_ID
+projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/RESOURCE_ID
+effective_identity=service-PROJECT_NUMBER@gcp-sa-aiplatform-re.iam.gserviceaccount.com
 ```
 
-この値は控えておきます。Cloud Run から実際に Agent Runtime を呼ぶには、`RuntimeAgentClient` の workflow contract を実装し、`AGENT_BACKEND=runtime` と `AGENT_RUNTIME_RESOURCE_NAME` を設定して再デプロイします。
-
-現時点では `AGENT_BACKEND=runtime` は fail-fast します。Runtime を使っているつもりで local backend に落ちる事故を防ぐためです。
-
-## 4.5. デプロイ直前チェック
-
-デプロイ前に、ローカルで次を確認します。
+1 行目を `AGENT_RUNTIME_RESOURCE_NAME` に設定します。
 
 ```bash
-.venv/bin/pytest
-./scripts/check-publication-safety.sh
-git diff --check
+export AGENT_RUNTIME_RESOURCE_NAME="projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/RESOURCE_ID"
 ```
 
-Cloud Run の実デプロイに進む前に、`.env` が Git 管理されていないこと、`APP_PASSWORD` と `APP_SECRET_KEY` が shell environment にだけ設定されていることを確認してください。Cloud Run / `APP_ENV=production` では両方が必須です。
+`effective_identity=...` が出た場合は、その identity も IAM 設定に含めます。
 
-## 5. 後片付け
+```bash
+export AGENT_RUNTIME_EFFECTIVE_IDENTITY="SERVICE_AGENT_EMAIL_FROM_EFFECTIVE_IDENTITY"
+./scripts/configure-runtime-iam.sh
+```
+
+注意:
+
+- Agent Runtime の deployment env では `GOOGLE_CLOUD_PROJECT` は予約名のため渡しません
+- Gemini model location は `GOOGLE_CLOUD_LOCATION=global` で固定します
+- `gemini-3.5-flash` が 404 の場合は Runtime logs を確認し、model ID または利用可能 region を facilitator に確認してください
+
+## 8. Cloud Run を deploy
+
+```bash
+export MOCK_MODE="false"
+export AGENT_BACKEND="runtime"
+export AGENT_RUNTIME_LOCATION="us-central1"
+export GOOGLE_CLOUD_LOCATION="global"
+export GCS_SIGNING_SERVICE_ACCOUNT="${CLOUD_RUN_SA}"
+
+./scripts/deploy-cloud-run.sh
+```
+
+成功すると Cloud Run URL が表示されます。
+
+```text
+Service URL: https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app
+```
+
+この URL を控えます。
+
+再 deploy する場合は、同じ shell session の `APP_SECRET_KEY` を使い続けてください。値を変えると既存の login cookie は無効になります。
+
+## 9. ブラウザで smoke test
+
+Cloud Run URL を開きます。
+
+```text
+https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app
+```
+
+ログインパスワードは `APP_PASSWORD` に設定した値です。
+
+```text
+workshop-demo-password
+```
+
+次を確認します。
+
+1. ログインできる
+2. 公開ブログ記事 URL を入力して `Agent に要約させる` を押す
+3. 実行中に `Agent Runtime で処理中`、経過秒数、`現在の目安` が表示される
+4. 要約確認画面が表示される
+5. `グラレコを生成` を押す
+6. 実行中に画像生成の待ち時間目安と `現在の目安` が表示される
+7. グラレコ結果が表示される
+8. `Agent style` と style 判断理由が表示される
+9. 画像 artifact が表示され、`画像を開く` / `画像を開いて保存` が使える
+10. フィードバックを入力して再生成できる
+
+画像生成は 1〜3 分かかることがあります。止まって見える場合でも、経過秒数が更新されていれば Cloud Run の polling は動いています。通常より長い場合は画面に注意メッセージが表示されます。
+
+Smoke test では、参加者が自由に URL を選ぶ前に次のどちらかで確認してください。サイト構造や bot 対策によって本文抽出に失敗する URL があるためです。
+
+```text
+https://zenn.dev/ubie_dev/articles/modern-web-guidance
+https://developer.chrome.com/docs/modern-web-guidance/get-started?hl=en
+```
+
+## 10. ログ確認
+
+Cloud Run logs:
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="'"${SERVICE_NAME}"'"' \
+  --project="${PROJECT_ID}" \
+  --limit=100 \
+  --format='value(timestamp,severity,textPayload,jsonPayload.message,jsonPayload.error)'
+```
+
+Agent Runtime logs:
+
+```bash
+RUNTIME_ID="$(echo "${AGENT_RUNTIME_RESOURCE_NAME}" | awk -F/ '{print $NF}')"
+gcloud logging read 'resource.type="aiplatform.googleapis.com/ReasoningEngine" AND resource.labels.reasoning_engine_id="'"${RUNTIME_ID}"'"' \
+  --project="${PROJECT_ID}" \
+  --limit=100 \
+  --format='value(timestamp,textPayload)'
+```
+
+Staging / artifact bucket:
+
+```bash
+gcloud storage ls -r "gs://${GCS_BUCKET}/agent_engine/**"
+gcloud storage ls -r "gs://${GCS_BUCKET}/${GCS_ARTIFACT_PREFIX}/**" | tail
+```
+
+## 11. よくあるエラー
+
+### Billing が無効
+
+症状:
+
+```text
+Billing account for project ... is not found
+UREQ_PROJECT_BILLING_NOT_FOUND
+```
+
+対処: Console で billing account を project に紐づけます。
+
+### Python 3.9 で deploy している
+
+症状:
+
+```text
+MCP requires Python 3.10 or above
+module 'google.genai.types' has no attribute ...
+```
+
+対処: Cloud Shell で `python3 --version` を確認し、3.10+ の venv を作り直します。
+
+### staging_bucket がない
+
+症状:
+
+```text
+Please provide a `staging_bucket`
+```
+
+対処: `GCS_BUCKET` と `AGENT_RUNTIME_STAGING_BUCKET` を export してから `python scripts/deploy-agent-runtime.py` を実行します。
+
+### `GOOGLE_CLOUD_PROJECT` が reserved
+
+症状:
+
+```text
+Environment variable name 'GOOGLE_CLOUD_PROJECT' is reserved
+```
+
+対処: Agent Runtime deployment env に `GOOGLE_CLOUD_PROJECT` を渡してはいけません。最新の `scripts/deploy-agent-runtime.py` を使ってください。
+
+### `gemini-3.5-flash` が 404
+
+症状:
+
+```text
+Publisher Model ... locations/us-central1 ... gemini-3.5-flash was not found
+```
+
+対処: Agent Runtime に `GOOGLE_CLOUD_LOCATION=global` が渡っているか確認し、Runtime を再 deploy します。
+
+### 画面のエラーが空
+
+対処: 最新の Cloud Run revision に再 deploy してください。現在の実装では例外本文が空でも型名を表示し、Cloud Logging に stack trace を出します。
+
+### signed URL が 403
+
+対処: `./scripts/configure-runtime-iam.sh` を再実行し、Cloud Run service account を signer にして Runtime effective identity に `roles/iam.serviceAccountTokenCreator` が付いていることを確認します。
+
+## 12. コスト確認
+
+正確な発生額は、この repository や `gcloud` の通常コマンドだけでは分かりません。Cloud Billing Console で project filter をかけて確認します。
+
+1. Google Cloud Console で Billing を開く
+2. Reports を開く
+3. Filter で `PROJECT_ID` を選ぶ
+4. 今日の日付範囲にする
+5. Service ごとの cost を確認する
+
+今回の構成で課金対象になり得るもの:
+
+- Cloud Build
+- Artifact Registry
+- Cloud Run
+- Vertex AI / Agent Runtime
+- Gemini text model
+- Gemini image model
+- Cloud Storage
+- Cloud Logging
+
+短時間の spike でも画像生成と Agent Runtime は課金対象になり得ます。ワークショップ後は必ず後片付けしてください。
+
+## 13. 後片付け
+
+Cloud Run:
 
 ```bash
 gcloud run services delete "${SERVICE_NAME}" \
@@ -198,22 +361,66 @@ gcloud run services delete "${SERVICE_NAME}" \
   --quiet
 ```
 
-Agent Runtime の削除は、Google Cloud Console または Agent Platform SDK から対象の reasoning engine を削除してください。
-
-Cloud Storage bucket も削除する場合:
+Cloud Storage:
 
 ```bash
 gcloud storage rm --recursive "gs://${GCS_BUCKET}"
 ```
 
-## 6. 公開前チェック
+Agent Runtime:
+
+一覧確認:
+
+```bash
+python - <<'PY'
+import os
+import vertexai
+
+client = vertexai.Client(
+    project=os.environ["PROJECT_ID"],
+    location=os.environ.get("AGENT_RUNTIME_LOCATION", "us-central1"),
+)
+for agent in client.agent_engines.list():
+    print(agent.api_resource.name, agent.api_resource.display_name)
+PY
+```
+
+削除:
+
+```bash
+python - <<'PY'
+import os
+import vertexai
+
+client = vertexai.Client(
+    project=os.environ["PROJECT_ID"],
+    location=os.environ.get("AGENT_RUNTIME_LOCATION", "us-central1"),
+)
+client.agent_engines.delete(
+    name=os.environ["AGENT_RUNTIME_RESOURCE_NAME"],
+    force=True,
+)
+print(f"Deleted {os.environ['AGENT_RUNTIME_RESOURCE_NAME']}")
+PY
+```
+
+Disposable project の場合は、project ごと削除するのが最も確実です。
+
+```bash
+gcloud projects delete "${PROJECT_ID}"
+```
+
+## 14. 公開前チェック
 
 運営者は public repository に push する前に必ず実行します。
 
 ```bash
+python -m pip install -e '.[dev]'
+python -m pytest
 ./scripts/check-publication-safety.sh
+git diff --check
 git status --short
 git log --all --oneline -- .env
 ```
 
-`git log --all -- .env` に履歴が出る場合は、公開前に履歴から削除し、漏洩した値をローテーションしてください。
+`.env`, `.venv`, `.python-version`, `artifacts/`, local screenshots, local backup directories を commit しないでください。

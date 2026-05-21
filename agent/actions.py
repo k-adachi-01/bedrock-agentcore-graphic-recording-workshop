@@ -67,7 +67,7 @@ async def _build_graphic(
 ) -> GraphicResult:
     progress = [
         ProgressStep("要約確認を受け取りました", "done"),
-        ProgressStep("Agent がスタイルを選択中", "running"),
+        ProgressStep("Agent が visual style を判断中", "running"),
         ProgressStep("グラレコ構成案を作成", "pending"),
         ProgressStep("画像生成を実行", "pending"),
         ProgressStep("成果物を保存", "pending"),
@@ -77,11 +77,11 @@ async def _build_graphic(
 
     style_decision = await tools.decide_style(summary.summary_lines, summary.key_points, feedback)
     progress[1] = ProgressStep(
-        "Agent がスタイルを選択",
+        f"Agent が {style_decision.style} スタイルを選択",
         "done",
-        f"{style_decision.style}: {style_decision.reason}",
+        style_decision.reason,
     )
-    progress[2] = ProgressStep("グラレコ構成案を作成中", "running")
+    progress[2] = ProgressStep("Agent が構成案を作成中", "running")
     await _emit(progress, on_progress)
     await _mock_step_delay()
 
@@ -91,7 +91,7 @@ async def _build_graphic(
         feedback,
         style=style_decision.style,
     )
-    progress[2] = ProgressStep("グラレコ構成案を作成", "done", style_decision.style)
+    progress[2] = ProgressStep("Agent が構成案を作成", "done", style_decision.style)
     progress[3] = ProgressStep("画像生成を実行中", "running")
     await _emit(progress, on_progress)
     await _mock_step_delay()
@@ -120,16 +120,16 @@ async def _build_graphic(
     progress[4] = ProgressStep("成果物を保存中", "running")
     await _emit(progress, on_progress)
     if generated_image.data:
-        artifact_path = await tools.save_binary_artifact(
+        artifact_path, artifact_url = await tools.save_binary_artifact_with_url(
             summary.session_id,
             generated_image.data,
             generated_image.mime_type,
         )
         artifact_mime_type = generated_image.mime_type
-        artifact_url = tools.artifact_url_for_path(artifact_path)
+        if not artifact_url:
+            artifact_url = tools.artifact_url_for_path(artifact_path)
     else:
-        artifact_path = await tools.save_artifact(summary.session_id, svg)
-        artifact_url = ""
+        artifact_path, artifact_url = await tools.save_artifact_with_url(summary.session_id, svg)
     progress[4] = ProgressStep("成果物を保存", "done", artifact_path)
     await _emit(progress, on_progress)
 

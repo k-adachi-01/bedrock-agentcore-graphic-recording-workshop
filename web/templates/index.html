@@ -6,7 +6,7 @@
     <title>Graphic Recording Agent Demo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}" />
+    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="min-h-screen bg-slate-50 text-slate-950">
     <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-8">
@@ -34,6 +34,7 @@
             hx-target="#workspace"
             hx-swap="innerHTML"
             hx-indicator="#summary-loading"
+            hx-disabled-elt="find button[type='submit']"
           >
             <label for="url" class="block text-sm font-semibold text-slate-700">ブログ記事 URL</label>
             <input
@@ -46,7 +47,7 @@
             />
             <button
               type="submit"
-              class="inline-flex w-full items-center justify-center rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
+              class="inline-flex w-full items-center justify-center rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Agent に要約させる
             </button>

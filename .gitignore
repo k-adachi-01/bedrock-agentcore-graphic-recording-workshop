@@ -1,10 +1,13 @@
 .venv/
+.venv-*/
+.python-version
 .pycache/
 .pytest_cache/
 __pycache__/
 *.pyc
 .env
 .DS_Store
+.claude/
 
 artifacts/*
 !artifacts/.gitkeep

@@ -43,6 +43,7 @@
     hx-target="#workspace"
     hx-swap="innerHTML"
     hx-indicator="#graphic-loading"
+    hx-disabled-elt="find button[type='submit']"
     class="space-y-4"
   >
     <input type="hidden" name="session_id" value="{{ summary.session_id }}" />
@@ -66,7 +67,7 @@
     </div>
     <button
       type="submit"
-      class="inline-flex items-center justify-center rounded-md bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+      class="inline-flex items-center justify-center rounded-md bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
     >
       この要約でグラレコを生成
     </button>

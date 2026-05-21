@@ -10,8 +10,9 @@ import os
 import re
 import socket
 import zlib
-from pathlib import Path
 from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
 from typing import Literal, Optional, Union
 from urllib.parse import urljoin, urlparse
 
@@ -459,12 +460,18 @@ async def save_artifact(session_id: str, svg: str) -> str:
     Returns:
         Local artifact path.
     """
+    path, _signed_url = await save_artifact_with_url(session_id, svg)
+    return path
+
+
+async def save_artifact_with_url(session_id: str, svg: str) -> tuple[str, str]:
+    """Save a generated SVG artifact and return a browser URL when available."""
     artifact_dir = Path(os.getenv("ARTIFACT_DIR", "artifacts"))
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{session_id}.svg"
     path.write_text(svg, encoding="utf-8")
-    await _upload_artifact_to_gcs(path, "image/svg+xml")
-    return str(path)
+    signed_url = await _upload_artifact_to_gcs(path, "image/svg+xml")
+    return str(path), signed_url
 
 
 async def save_binary_artifact(session_id: str, data: bytes, mime_type: str) -> str:
@@ -478,24 +485,34 @@ async def save_binary_artifact(session_id: str, data: bytes, mime_type: str) -> 
     Returns:
         Local artifact path.
     """
+    path, _signed_url = await save_binary_artifact_with_url(session_id, data, mime_type)
+    return path
+
+
+async def save_binary_artifact_with_url(
+    session_id: str,
+    data: bytes,
+    mime_type: str,
+) -> tuple[str, str]:
+    """Save a generated binary artifact and return a browser URL when available."""
     artifact_dir = Path(os.getenv("ARTIFACT_DIR", "artifacts"))
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{session_id}{_extension_for_mime_type(mime_type)}"
     path.write_bytes(data)
-    await _upload_artifact_to_gcs(path, mime_type)
-    return str(path)
+    signed_url = await _upload_artifact_to_gcs(path, mime_type)
+    return str(path), signed_url
 
 
 def artifact_url_for_path(artifact_path: str) -> str:
     return f"/artifacts/{Path(artifact_path).name}"
 
 
-async def _upload_artifact_to_gcs(path: Path, content_type: str) -> None:
+async def _upload_artifact_to_gcs(path: Path, content_type: str) -> str:
     bucket_name = os.getenv("GCS_BUCKET")
     if not bucket_name:
-        return
+        return ""
 
-    def upload() -> None:
+    def upload() -> str:
         from google.cloud import storage
 
         prefix = os.getenv("GCS_ARTIFACT_PREFIX", "artifacts").strip("/")
@@ -503,11 +520,57 @@ async def _upload_artifact_to_gcs(path: Path, content_type: str) -> None:
         client = storage.Client()
         blob = client.bucket(bucket_name).blob(object_name)
         blob.upload_from_filename(str(path), content_type=content_type)
+        return _generate_signed_artifact_url(blob)
 
     try:
-        await asyncio.to_thread(upload)
+        return await asyncio.to_thread(upload)
     except Exception as exc:
         logger.warning("Cloud Storage artifact upload failed: %s", exc)
+        return ""
+
+
+def _generate_signed_artifact_url(blob) -> str:
+    ttl_seconds = signed_artifact_url_ttl_seconds()
+    credentials, service_account_email = _signed_url_credentials()
+    return blob.generate_signed_url(
+        version="v4",
+        expiration=timedelta(seconds=ttl_seconds),
+        method="GET",
+        credentials=credentials,
+        service_account_email=service_account_email,
+        access_token=credentials.token,
+    )
+
+
+def signed_artifact_url_ttl_seconds() -> int:
+    value = os.getenv("GCS_SIGNED_URL_TTL_SECONDS", "28800")
+    try:
+        return max(60, int(value))
+    except ValueError:
+        return 28800
+
+
+def _signed_url_credentials():
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    credentials, _project = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    auth_request = Request()
+    credentials.refresh(auth_request)
+
+    service_account_email = os.getenv("GCS_SIGNING_SERVICE_ACCOUNT") or getattr(
+        credentials,
+        "service_account_email",
+        "",
+    )
+    if not service_account_email:
+        raise RuntimeError(
+            "Could not determine the service account email for signed URL generation. "
+            "Set GCS_SIGNING_SERVICE_ACCOUNT to the Agent Runtime service account."
+        )
+    return credentials, service_account_email
 
 
 async def _fetch_public_url(url: str) -> httpx.Response:

@@ -20,6 +20,8 @@ def test_phase1_url_to_svg_regeneration_flow():
 
     summary_job = client.post("/summaries", data={"url": "https://example.com/blog/demo"})
     assert summary_job.status_code == 200
+    assert "現在の目安" in summary_job.text
+    assert "Agent Runtime に要約 workflow を送信" in summary_job.text
     summary_job_id = _job_id(summary_job.text, "summary")
 
     summary = _poll_job(client, summary_job_id)
@@ -40,9 +42,12 @@ def test_phase1_url_to_svg_regeneration_flow():
 
     graphic = _poll_job(client, graphic_job_id)
     assert "グラレコ結果" in graphic
+    assert "生成画像" in graphic
+    assert "生成情報" in graphic
     assert "<svg" in graphic
     assert "編集済み要約 1" in graphic
-    assert "Agent decision:" in graphic
+    assert "Agent style:" in graphic
+    assert "判断理由:" in graphic
 
     regen_job = client.post(
         "/graphics/regenerate",
@@ -192,27 +197,144 @@ def test_production_requires_app_password(monkeypatch):
     assert_auth_config()
 
 
-def test_runtime_backend_fails_fast(monkeypatch):
+def test_runtime_backend_requires_resource_name(monkeypatch):
     monkeypatch.setenv("AGENT_BACKEND", "runtime")
+    monkeypatch.delenv("AGENT_RUNTIME_RESOURCE_NAME", raising=False)
 
     from web.agent_client import build_agent_client
     import asyncio
     import pytest
 
     client = build_agent_client()
-    with pytest.raises(RuntimeError, match="AGENT_BACKEND=runtime is not wired yet"):
+    with pytest.raises(RuntimeError, match="AGENT_RUNTIME_RESOURCE_NAME"):
         asyncio.run(client.summarize_url("https://example.com"))
+
+
+def test_user_facing_error_message_mapping():
+    from web.main import _display_error
+
+    model_error = _display_error(
+        RuntimeError("Publisher Model projects/demo/locations/us-central1/models/gemini-3.5-flash was not found")
+    )
+    signed_url_error = _display_error(RuntimeError("signBlob permission denied"))
+    empty_error = _display_error(AssertionError())
+
+    assert "Gemini model が見つかりません" in model_error
+    assert "技術詳細:" in model_error
+    assert "signed URL 生成権限" in signed_url_error
+    assert "AssertionError" in empty_error
+
+
+def test_slow_job_message_after_threshold():
+    from datetime import timedelta
+    from web.main import AgentJob
+
+    job = AgentJob(job_id="graphic-test", kind="graphic", title="生成中")
+    job.started_at = job.started_at - timedelta(seconds=241)
+
+    assert job.is_slow is True
+    assert "Agent Runtime logs" in job.slow_message
+
+
+def test_runtime_contract_round_trip():
+    from agent.models import ProgressStep, SummaryResult
+    from agent.runtime_contract import RuntimeSummaryPayload, RuntimeWorkflowResponse
+
+    summary = SummaryResult(
+        session_id="session-1",
+        url="https://example.com",
+        title="Demo",
+        summary_lines=["a", "b", "c"],
+        key_points=["p1", "p2", "p3", "p4"],
+        article_text="body",
+        text_backend="gemini:test",
+        progress=[ProgressStep("done", "done", "ok")],
+    )
+
+    response = RuntimeWorkflowResponse(
+        operation="summarize_url",
+        summary=RuntimeSummaryPayload.from_result(summary),
+    )
+    restored = RuntimeWorkflowResponse.model_validate_json(response.model_dump_json())
+
+    assert restored.summary is not None
+    assert restored.summary.to_result().title == "Demo"
+    assert restored.summary.to_result().progress[0].detail == "ok"
+
+
+def test_runtime_client_parses_function_response_event():
+    from web.agent_client import _runtime_response_from_event
+
+    event = {
+        "content": {
+            "parts": [
+                {
+                    "function_response": {
+                        "name": "runtime_summarize_url",
+                        "response": {
+                            "operation": "summarize_url",
+                            "summary": {
+                                "session_id": "s1",
+                                "url": "https://example.com",
+                                "title": "Title",
+                                "summary_lines": ["a", "b", "c"],
+                                "key_points": ["p1", "p2", "p3", "p4"],
+                                "article_text": "body",
+                                "text_backend": "runtime",
+                                "progress": [],
+                            },
+                        },
+                    }
+                }
+            ]
+        }
+    }
+
+    response = _runtime_response_from_event(event)
+
+    assert response is not None
+    assert response.operation == "summarize_url"
+    assert response.summary is not None
+    assert response.summary.title == "Title"
 
 
 def test_article_fetch_size_limit_helpers(monkeypatch):
     monkeypatch.setenv("ARTICLE_FETCH_MAX_BYTES", "4096")
 
-    from agent.tools import article_fetch_max_bytes
+    from agent.tools import article_fetch_max_bytes, signed_artifact_url_ttl_seconds
 
     assert article_fetch_max_bytes() == 4096
 
     monkeypatch.setenv("ARTICLE_FETCH_MAX_BYTES", "not-a-number")
     assert article_fetch_max_bytes() == 2_000_000
+
+    monkeypatch.setenv("GCS_SIGNED_URL_TTL_SECONDS", "120")
+    assert signed_artifact_url_ttl_seconds() == 120
+
+    monkeypatch.setenv("GCS_SIGNED_URL_TTL_SECONDS", "bad")
+    assert signed_artifact_url_ttl_seconds() == 28800
+
+
+def test_signed_url_credentials_uses_explicit_signing_service_account(monkeypatch):
+    from agent import tools
+
+    class Credentials:
+        token = "token"
+
+        def refresh(self, _request):
+            self.token = "fresh-token"
+
+    monkeypatch.setenv("GCS_SIGNING_SERVICE_ACCOUNT", "runtime@example.iam.gserviceaccount.com")
+    monkeypatch.setattr(tools, "google_auth_default_for_test", None, raising=False)
+
+    import google.auth
+
+    monkeypatch.setattr(google.auth, "default", lambda scopes: (Credentials(), "project"))
+
+    credentials, service_account_email = tools._signed_url_credentials()
+
+    assert credentials.token == "fresh-token"
+    assert service_account_email == "runtime@example.iam.gserviceaccount.com"
 
 
 def test_read_limited_response_rejects_oversized_body():

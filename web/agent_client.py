@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
+import re
+import asyncio
 from typing import Optional
 from typing import Protocol
 from uuid import uuid4
@@ -14,6 +17,7 @@ from agent.actions import (
 from agent.adk_agent import run_narration_turn
 from agent.models import GraphicResult, SummaryResult
 from agent.models import ProgressStep
+from agent.runtime_contract import RuntimeSummaryPayload, RuntimeWorkflowResponse
 
 
 class AgentClient(Protocol):
@@ -64,27 +68,38 @@ class LocalAgentClient:
         return await regenerate_graphic_recording(summary, feedback, on_progress=on_progress)
 
 
-class RuntimeAgentClient(LocalAgentClient):
-    """Agent Runtime integration boundary.
+class RuntimeAgentClient:
+    """Calls the deployed Agent Runtime workflow and validates its JSON contract."""
 
-    This intentionally fails fast until the remote workflow contract is wired.
-    A silent local fallback would make Cloud Run deployments look successful
-    while bypassing Agent Runtime entirely.
-    """
+    def __init__(self) -> None:
+        self._remote_agent = None
 
     async def summarize_url(
         self,
         url: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> SummaryResult:
-        raise _runtime_not_configured()
+        await _emit_runtime_status("Agent Runtime に要約 workflow を送信", on_progress)
+        response = await self._run_runtime_operation({"operation": "summarize_url", "url": url})
+        if not response.summary:
+            raise RuntimeError("Agent Runtime response did not include summary")
+        return response.summary.to_result()
 
     async def generate_graphic_recording(
         self,
         summary: SummaryResult,
         on_progress: Optional[ProgressCallback] = None,
     ) -> GraphicResult:
-        raise _runtime_not_configured()
+        await _emit_runtime_status("Agent Runtime にグラレコ workflow を送信", on_progress)
+        response = await self._run_runtime_operation(
+            {
+                "operation": "generate_graphic",
+                "summary": RuntimeSummaryPayload.from_result(summary).model_dump(mode="json"),
+            }
+        )
+        if not response.graphic:
+            raise RuntimeError("Agent Runtime response did not include graphic")
+        return response.graphic.to_result()
 
     async def regenerate_graphic_recording(
         self,
@@ -92,7 +107,59 @@ class RuntimeAgentClient(LocalAgentClient):
         feedback: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> GraphicResult:
-        raise _runtime_not_configured()
+        await _emit_runtime_status("Agent Runtime に再生成 workflow を送信", on_progress)
+        response = await self._run_runtime_operation(
+            {
+                "operation": "regenerate_graphic",
+                "summary": RuntimeSummaryPayload.from_result(summary).model_dump(mode="json"),
+                "feedback": feedback,
+            }
+        )
+        if not response.graphic:
+            raise RuntimeError("Agent Runtime response did not include graphic")
+        return response.graphic.to_result()
+
+    async def _run_runtime_operation(self, payload: dict) -> RuntimeWorkflowResponse:
+        remote_agent = self._get_remote_agent()
+        return await asyncio.to_thread(self._run_runtime_operation_sync, remote_agent, payload)
+
+    def _run_runtime_operation_sync(self, remote_agent, payload: dict) -> RuntimeWorkflowResponse:
+        runtime_response = None
+        final_text = ""
+        for event in remote_agent.stream_query(
+            user_id=os.getenv("AGENT_RUNTIME_USER_ID", "workshop-user"),
+            message=json.dumps(payload, ensure_ascii=False),
+        ):
+            event_payload = _event_to_plain_data(event)
+            candidate = _runtime_response_from_event(event_payload)
+            if candidate:
+                runtime_response = candidate
+            final_text = _last_text_from_event(event_payload) or final_text
+
+        if runtime_response:
+            if runtime_response.error:
+                raise RuntimeError(runtime_response.error)
+            return runtime_response
+        if final_text:
+            return _runtime_response_from_text(final_text)
+        raise RuntimeError("Agent Runtime returned no workflow response")
+
+    def _get_remote_agent(self):
+        if self._remote_agent is not None:
+            return self._remote_agent
+
+        resource_name = os.getenv("AGENT_RUNTIME_RESOURCE_NAME")
+        if not resource_name:
+            raise RuntimeError("Set AGENT_RUNTIME_RESOURCE_NAME when AGENT_BACKEND=runtime.")
+
+        import vertexai
+
+        client = vertexai.Client(
+            project=os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID"),
+            location=os.getenv("AGENT_RUNTIME_LOCATION") or _location_from_resource_name(resource_name),
+        )
+        self._remote_agent = client.agent_engines.get(name=resource_name)
+        return self._remote_agent
 
 
 class AdkAgentClient(LocalAgentClient):
@@ -187,9 +254,61 @@ def build_agent_client() -> AgentClient:
     return LocalAgentClient()
 
 
-def _runtime_not_configured() -> RuntimeError:
-    return RuntimeError(
-        "AGENT_BACKEND=runtime is not wired yet. Deploy with AGENT_BACKEND=adk "
-        "for the workshop path, or implement RuntimeAgentClient against the "
-        "Agent Runtime async_stream_query contract before enabling runtime mode."
-    )
+async def _emit_runtime_status(
+    label: str,
+    on_progress: Optional[ProgressCallback],
+) -> None:
+    if on_progress:
+        await on_progress([ProgressStep(label, "running")])
+
+
+def _location_from_resource_name(resource_name: str) -> str:
+    match = re.search(r"/locations/([^/]+)/", resource_name)
+    if not match:
+        return "us-central1"
+    return match.group(1)
+
+
+def _event_to_plain_data(event):
+    if isinstance(event, dict):
+        return event
+    if hasattr(event, "model_dump"):
+        return event.model_dump(mode="json")
+    if hasattr(event, "to_dict"):
+        return event.to_dict()
+    return {}
+
+
+def _runtime_response_from_event(event: dict) -> Optional[RuntimeWorkflowResponse]:
+    content = event.get("content") or {}
+    for part in content.get("parts") or []:
+        function_response = part.get("function_response") or part.get("functionResponse") or {}
+        response = function_response.get("response")
+        if isinstance(response, dict):
+            try:
+                return RuntimeWorkflowResponse.model_validate(response)
+            except Exception:
+                continue
+    return None
+
+
+def _last_text_from_event(event: dict) -> str:
+    content = event.get("content") or {}
+    texts = []
+    for part in content.get("parts") or []:
+        text = part.get("text")
+        if text:
+            texts.append(text)
+    return "\n".join(texts).strip()
+
+
+def _runtime_response_from_text(text: str) -> RuntimeWorkflowResponse:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        stripped = re.sub(r"^json\s*", "", stripped, flags=re.I).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        stripped = stripped[start : end + 1]
+    return RuntimeWorkflowResponse.model_validate_json(stripped)

@@ -4,6 +4,7 @@ import os
 from typing import Any, Optional
 
 from . import tools
+from . import runtime_workflows
 
 
 GRAPHIC_RECORDING_AGENT_INSTRUCTION = """
@@ -31,6 +32,18 @@ which action/tool phase the application will run next and why:
 - regenerate_graphic_recording: apply feedback, then regenerate the visual plan and artifact.
 
 Return one short Japanese sentence. Do not use markdown.
+"""
+
+RUNTIME_WORKFLOW_INSTRUCTION = """
+You are the Agent Runtime workflow boundary for a workshop web app.
+
+The user message is JSON with one operation:
+- summarize_url: call runtime_summarize_url with the URL.
+- generate_graphic: call runtime_generate_graphic with the summary payload.
+- regenerate_graphic: call runtime_regenerate_graphic with the summary payload and feedback.
+
+Call exactly one matching tool. Do not invent fields. After the tool returns,
+return the tool response JSON only.
 """
 
 
@@ -81,6 +94,28 @@ def build_narrator_agent(model: Optional[str] = None) -> Any:
         model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash"),
         description="Explains the next action in the graphic recording workflow.",
         instruction=ORCHESTRATOR_INSTRUCTION,
+    )
+
+
+def build_runtime_workflow_agent(model: Optional[str] = None) -> Any:
+    """Build the ADK agent deployed to Agent Runtime for the web backend."""
+    try:
+        from google.adk.agents import LlmAgent
+    except ImportError as exc:
+        raise RuntimeError(
+            "google-adk is not installed. Install google-adk before deploying Agent Runtime."
+        ) from exc
+
+    return LlmAgent(
+        name="graphic_recording_runtime_workflow",
+        model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash"),
+        description="Runs the graphic recording workflow and returns the JSON contract.",
+        instruction=RUNTIME_WORKFLOW_INSTRUCTION,
+        tools=[
+            runtime_workflows.runtime_summarize_url,
+            runtime_workflows.runtime_generate_graphic,
+            runtime_workflows.runtime_regenerate_graphic,
+        ],
     )
 
 

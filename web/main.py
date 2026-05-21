@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import uuid4
@@ -12,7 +14,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from agent.models import GraphicResult, SummaryResult
+from agent.models import GraphicResult, ProgressStep, SummaryResult
 from agent.tools import close_genai_client
 from web.auth import (
     AUTH_COOKIE_NAME,
@@ -28,6 +30,7 @@ from web.logging_config import configure_logging
 
 
 BASE_DIR = Path(__file__).resolve().parent
+logger = logging.getLogger(__name__)
 JobKind = Literal["summary", "graphic"]
 JobStatus = Literal["running", "done", "failed"]
 
@@ -38,11 +41,63 @@ class AgentJob:
     kind: JobKind
     title: str
     status: JobStatus = "running"
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     progress: list = field(default_factory=list)
     summary: Optional[SummaryResult] = None
     graphic: Optional[GraphicResult] = None
     feedback: str = ""
     error: str = ""
+
+    @property
+    def elapsed_seconds(self) -> int:
+        return max(0, int((datetime.now(timezone.utc) - self.started_at).total_seconds()))
+
+    @property
+    def wait_hint(self) -> str:
+        if self.kind == "graphic":
+            return "画像生成は 1〜3 分かかることがあります。画面は自動更新されます"
+        return "記事取得と要約には 30〜90 秒かかることがあります。画面は自動更新されます"
+
+    @property
+    def slow_after_seconds(self) -> int:
+        if self.kind == "graphic":
+            return 240
+        return 120
+
+    @property
+    def is_slow(self) -> bool:
+        return self.status == "running" and self.elapsed_seconds >= self.slow_after_seconds
+
+    @property
+    def slow_message(self) -> str:
+        if self.kind == "graphic":
+            return "画像生成が通常より長くかかっています。数分続く場合は Agent Runtime logs と Gemini image model の quota を確認してください。"
+        return "要約が通常より長くかかっています。数分続く場合は URL の本文取得可否と Agent Runtime logs を確認してください。"
+
+    @property
+    def show_estimated_progress(self) -> bool:
+        return self.status == "running" and len(self.progress) <= 1
+
+    @property
+    def estimated_progress(self) -> list[ProgressStep]:
+        if not self.show_estimated_progress:
+            return []
+        if self.kind == "graphic":
+            milestones = [
+                (0, "要約を Agent Runtime に送信"),
+                (10, "Agent が style と構成案を判断"),
+                (30, "Gemini で画像生成を実行"),
+                (80, "Cloud Storage に成果物を保存"),
+                (105, "signed URL を準備して画面へ返却"),
+            ]
+        else:
+            milestones = [
+                (0, "Agent Runtime に要約 workflow を送信"),
+                (12, "記事本文を取得"),
+                (35, "3 行要約と重要ポイントを生成"),
+                (60, "JSON contract を検証して画面へ返却"),
+            ]
+        return _estimated_progress_steps(self.elapsed_seconds, milestones)
 
 
 @asynccontextmanager
@@ -250,8 +305,9 @@ async def _run_summary_job(job_id: str, url: str) -> None:
     try:
         summary = await _agent_client().summarize_url(url, on_progress=update_progress)
     except Exception as exc:
+        logger.exception("Summary job failed: job_id=%s url=%s", job_id, url)
         job.status = "failed"
-        job.error = str(exc)
+        job.error = _display_error(exc)
         return
 
     sessions[summary.session_id] = summary
@@ -280,8 +336,9 @@ async def _run_graphic_job(job_id: str, summary: SummaryResult, feedback: str) -
                 on_progress=update_progress,
             )
     except Exception as exc:
+        logger.exception("Graphic job failed: job_id=%s session_id=%s", job_id, summary.session_id)
         job.status = "failed"
-        job.error = str(exc)
+        job.error = _display_error(exc)
         return
 
     graphics[summary.session_id] = graphic
@@ -297,6 +354,49 @@ def _apply_summary_edits(summary: SummaryResult, summary_text: str, key_points_t
         summary.summary_lines = summary_lines[:3]
     if key_points:
         summary.key_points = key_points[:6]
+
+
+def _display_error(exc: Exception) -> str:
+    raw_message = str(exc).strip()
+    technical_detail = raw_message or f"{type(exc).__name__}: {exc!r}"
+    friendly_message = _friendly_error_message(technical_detail)
+    if friendly_message == technical_detail:
+        return friendly_message
+    return f"{friendly_message}\n技術詳細: {technical_detail}"
+
+
+def _friendly_error_message(message: str) -> str:
+    normalized = message.lower()
+    if "publisher model" in normalized or ("model" in normalized and "404" in normalized):
+        return "Gemini model が見つかりません。model ID と GOOGLE_CLOUD_LOCATION=global の設定を確認してください。"
+    if "signed url" in normalized or "signblob" in normalized or "serviceaccounttokencreator" in normalized:
+        return "画像の signed URL 生成権限が不足しています。configure-runtime-iam.sh を再実行してください。"
+    if "permission" in normalized or "403" in normalized or "denied" in normalized:
+        return "Google Cloud の権限が不足しています。Cloud Run / Agent Runtime / Cloud Storage の IAM 設定を確認してください。"
+    if "agent runtime returned no workflow response" in normalized or "assertionerror" in normalized:
+        return "Agent Runtime から期待した形式の応答が返りませんでした。Runtime logs を確認してください。"
+    if "gcs_bucket is required" in normalized:
+        return "生成画像の保存先 bucket が設定されていません。GCS_BUCKET を設定して Runtime を再 deploy してください。"
+    if "exceeds" in normalized and "bytes" in normalized:
+        return "記事本文が大きすぎるため取得を停止しました。別の記事 URL で試してください。"
+    if "url" in normalized or "fetch" in normalized or "article" in normalized:
+        return "記事本文を取得できませんでした。公開されている記事 URL か、別の URL で試してください。"
+    return message
+
+
+def _estimated_progress_steps(elapsed_seconds: int, milestones: list[tuple[int, str]]) -> list[ProgressStep]:
+    steps: list[ProgressStep] = []
+    for index, (starts_at, label) in enumerate(milestones):
+        next_starts_at = milestones[index + 1][0] if index + 1 < len(milestones) else None
+        if elapsed_seconds < starts_at:
+            status = "pending"
+        elif next_starts_at is not None and elapsed_seconds >= next_starts_at:
+            status = "done"
+        else:
+            status = "running"
+        detail = "目安ステップです。実際の結果は Agent Runtime 完了後に反映されます"
+        steps.append(ProgressStep(label, status, detail))
+    return steps
 
 
 def _is_auth_exempt_path(path: str) -> bool:

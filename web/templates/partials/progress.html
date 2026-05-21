@@ -2,7 +2,7 @@
   {% set steps = graphic.progress if graphic is defined else summary.progress %}
 {% endif %}
 <div class="rounded-lg border border-slate-200 bg-white p-4">
-  <h3 class="text-sm font-bold text-slate-700">Agent 進行状況</h3>
+  <h3 class="text-sm font-bold text-slate-700">{{ progress_title | default("Agent 進行状況") }}</h3>
   {% if steps %}
     <ol class="mt-4">
       {% for step in steps %}
