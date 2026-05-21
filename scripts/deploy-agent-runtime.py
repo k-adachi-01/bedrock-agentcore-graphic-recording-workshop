@@ -31,7 +31,7 @@ def main() -> None:
             "env_vars": {
                 "MOCK_MODE": "false",
                 "GOOGLE_GENAI_USE_VERTEXAI": "true",
-                "GEMINI_TEXT_MODEL": os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"),
+                "GEMINI_TEXT_MODEL": os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash"),
                 "GEMINI_IMAGE_MODEL": os.getenv(
                     "GEMINI_IMAGE_MODEL",
                     "gemini-3-pro-image-preview",

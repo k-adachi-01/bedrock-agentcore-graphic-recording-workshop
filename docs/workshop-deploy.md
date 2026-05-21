@@ -120,7 +120,7 @@ export SERVICE_NAME="graphic-recording-agent-demo"
 export APP_PASSWORD="workshop-demo-password"
 export APP_SECRET_KEY="$(openssl rand -hex 32)"
 export AGENT_BACKEND="adk"
-export GEMINI_TEXT_MODEL="gemini-2.5-flash"
+export GEMINI_TEXT_MODEL="gemini-3.5-flash"
 export GEMINI_IMAGE_MODEL="gemini-3-pro-image-preview"
 export ARTICLE_FETCH_MAX_BYTES="2000000"
 

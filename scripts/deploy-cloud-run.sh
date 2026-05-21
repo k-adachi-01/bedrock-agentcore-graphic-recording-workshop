@@ -7,7 +7,7 @@ set -euo pipefail
 : "${APP_PASSWORD:?Set APP_PASSWORD to the demo login password.}"
 : "${APP_SECRET_KEY:?Set APP_SECRET_KEY to a long random value.}"
 : "${AGENT_BACKEND:=local}"
-: "${GEMINI_TEXT_MODEL:=gemini-2.5-flash}"
+: "${GEMINI_TEXT_MODEL:=gemini-3.5-flash}"
 : "${GEMINI_IMAGE_MODEL:=gemini-3-pro-image-preview}"
 : "${GOOGLE_CLOUD_LOCATION:=global}"
 : "${ARTICLE_FETCH_MAX_BYTES:=2000000}"

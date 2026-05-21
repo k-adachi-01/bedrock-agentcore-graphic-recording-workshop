@@ -77,7 +77,7 @@ def is_mock_mode() -> bool:
 
 
 def text_model_name() -> str:
-    return os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+    return os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash")
 
 
 def image_model_name() -> str:

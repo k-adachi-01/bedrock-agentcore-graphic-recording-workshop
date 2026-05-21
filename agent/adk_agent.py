@@ -53,7 +53,7 @@ def build_graphic_recording_agent(model: Optional[str] = None) -> Any:
 
     return LlmAgent(
         name="graphic_recording_agent",
-        model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"),
+        model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash"),
         description="Summarizes blog URLs and creates graphic recording artifacts.",
         instruction=GRAPHIC_RECORDING_AGENT_INSTRUCTION,
         tools=[
@@ -78,7 +78,7 @@ def build_narrator_agent(model: Optional[str] = None) -> Any:
 
     return LlmAgent(
         name="graphic_recording_narrator",
-        model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash"),
+        model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash"),
         description="Explains the next action in the graphic recording workflow.",
         instruction=ORCHESTRATOR_INSTRUCTION,
     )
@@ -118,7 +118,7 @@ async def run_narration_turn(prompt: str, session_id: str, user_id: str = "demo-
         if event.is_final_response() and event.content and event.content.parts:
             final_text = event.content.parts[0].text or ""
 
-    model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash")
     if final_text:
         return f"adk:{model}:{final_text[:80]}"
     return f"adk:{model}"

@@ -58,7 +58,7 @@ Cloud Run に public URL で出す場合は、必ず `APP_PASSWORD` と `APP_SEC
 - `GEMINI_RETRY_BASE_DELAY_SECONDS`: Gemini API retry の初期待機秒数です。既定値は 0.6 秒です。
 - `GOOGLE_GENAI_USE_VERTEXAI=true`: Cloud Run / Gemini Enterprise Agent Platform の Gemini API を ADC で使う場合に設定します。この場合は `GOOGLE_CLOUD_PROJECT` と `GOOGLE_CLOUD_LOCATION` も必要です。
 - `GEMINI_API_KEY` または `GOOGLE_API_KEY`: ローカル素振りで Gemini Developer API を使う場合に設定します。
-- `GEMINI_TEXT_MODEL`: Gemini text model。既定値は `gemini-2.5-flash` です。
+- `GEMINI_TEXT_MODEL`: Gemini text model。既定値は `gemini-3.5-flash` です。
 - `GEMINI_IMAGE_MODEL`: Gemini image model。既定値は `gemini-3-pro-image-preview`（Nano Banana Pro）です。
 - `GCS_BUCKET`: 設定した場合、生成物を Cloud Storage にもアップロードします。
 - `GCS_ARTIFACT_PREFIX`: Cloud Storage 上の object prefix です。既定値は `artifacts` です。
@@ -71,7 +71,7 @@ export AGENT_BACKEND=adk
 export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT=your-project-id
 export GOOGLE_CLOUD_LOCATION=global
-export GEMINI_TEXT_MODEL=gemini-2.5-flash
+export GEMINI_TEXT_MODEL=gemini-3.5-flash
 export GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
 ```
 
