@@ -100,6 +100,8 @@ Phase 0 で実行する主なコマンド:
 
 本編では、まず全体構成を確認し、その後は Section 5 以降の bucket / IAM / Agent Runtime / Cloud Run deploy に進みます。
 
+Cloud Shell の tab を閉じた、または idle で session が切れた場合は、Section 3 の `export ...` を再実行してから Section 5 以降に進んでください。
+
 ## 0. 全体構成
 
 - Cloud Run: Web UI、ログイン、HTMX polling、Agent Runtime 呼び出し
