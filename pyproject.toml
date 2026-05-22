@@ -1,7 +1,7 @@
 [project]
 name = "gemini-enterprise-agent-platform-demo"
 version = "0.1.0"
-description = "Phase 1 mock demo: summarize a blog URL and render a graphic recording SVG."
+description = "Workshop demo: deploy an ADK Agent Runtime workflow that turns a blog URL into a graphic recording."
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.111.0",

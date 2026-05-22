@@ -98,7 +98,7 @@ Phase 0 で実行する主なコマンド:
 
 ## Phase 1. Workshop 本編の流れ
 
-本編では、まず全体構成を確認し、その後は Section 5 以降の bucket / IAM / Agent Runtime / Cloud Run deploy に進みます。deploy 待ち時間は、講師が ADK、tool 設計、JSON contract、signed URL の説明に使います。
+本編では、まず全体構成を確認し、その後は Section 5 以降の bucket / IAM / Agent Runtime / Cloud Run deploy に進みます。
 
 ## 0. 全体構成
 
@@ -113,7 +113,7 @@ Phase 0 で実行する主なコマンド:
 - Agent Runtime の local filesystem は Cloud Run から見えないため、生成物は Cloud Storage に置く
 - Cloud Run は UI と polling に集中し、workflow は Agent Runtime に寄せる
 - Runtime から Cloud Run へ返す値は `agent/runtime_contract.py` の JSON contract で固定する
-- v1 は安定性を優先し、Runtime 完了後に progress をまとめて表示する
+- Runtime 完了後に、workflow の進行状況と結果を JSON contract として Cloud Run に返す
 
 ## 1. 事前準備
 
@@ -154,8 +154,7 @@ python -m pip install -U pip
 python -m pip install -r requirements.txt -c constraints-workshop.txt
 ```
 
-`constraints-workshop.txt` はワークショップ用の provisional pin です。public repository を Cloud Shell で E2E 検証した後、Cloud Shell 上の `python -m pip freeze > constraints-workshop.txt` で最終版に更新します。
-Cloud Run と Agent Runtime の build でもこの固定版を使うため、ワークショップ直前に依存バージョンが変わって挙動が変わる事故を避けられます。
+`constraints-workshop.txt` はワークショップ用に固定した依存バージョンです。Cloud Shell、Cloud Run、Agent Runtime の build で同じ固定版を使います。
 
 ## 3. 環境変数を設定
 
@@ -284,7 +283,7 @@ export AGENT_RUNTIME_EFFECTIVE_IDENTITY="PASTE_THE_EMAIL_AFTER_EFFECTIVE_IDENTIT
 
 - Agent Runtime の deployment env では `GOOGLE_CLOUD_PROJECT` は予約名のため渡しません
 - Gemini model location は `GOOGLE_CLOUD_LOCATION=global` で固定します
-- `gemini-3.5-flash` が 404 の場合は Runtime logs を確認し、model ID または利用可能 region を facilitator に確認してください
+- `gemini-3.5-flash` が 404 の場合は Runtime logs を確認し、model ID または利用可能 region をスタッフに確認してください
 
 ## 8. Cloud Run を deploy
 
@@ -346,9 +345,9 @@ https://zenn.dev/ubie_dev/articles/modern-web-guidance
 https://developer.chrome.com/docs/modern-web-guidance/get-started?hl=en
 ```
 
-## 10. Plan B: Cloud Shell mock fallback
+## 10. 困った場合: Cloud Shell mock mode
 
-Billing、IAM、Agent Runtime deploy で詰まり、時間内に復旧できない参加者は mock fallback に切り替えます。GCP deploy は完了しませんが、Cloud Shell の Web Preview でアプリの体験を確認できます。
+Billing、IAM、Agent Runtime deploy で進めない場合は、mock mode に切り替えると Cloud Shell の Web Preview でアプリの画面を確認できます。Agent Runtime / Cloud Run / Cloud Storage の deploy は行いません。
 
 Cloud Shell ターミナルで起動します。
 
@@ -363,11 +362,11 @@ python -m uvicorn web.main:app --host 0.0.0.0 --port 8080
 
 起動したら、Cloud Shell 右上の **Web Preview** から **Preview on port 8080** を開きます。ログインパスワードは `mock` です。
 
-この fallback はデモ体験用です。Agent Runtime、Cloud Run、Cloud Storage、signed URL は使いません。参加者が講義内容を追うための避難経路として扱ってください。
+この mode は画面確認用です。Agent Runtime、Cloud Run、Cloud Storage、signed URL は使いません。
 
 ## 11. ログ確認
 
-TA に相談する場合は、まず診断 script の出力を共有してください。
+スタッフに相談する場合は、まず診断 script の出力を共有してください。
 
 ```bash
 ./scripts/diagnose-deployment.sh
@@ -519,27 +518,3 @@ gcloud projects describe "${PROJECT_ID}"
 ```bash
 gcloud projects delete "${PROJECT_ID}"
 ```
-
-## 15. 公開前チェック
-
-運営者は public repository に push する前に必ず実行します。
-
-```bash
-python -m pip install -e '.[dev]'
-python -m pytest
-./scripts/check-publication-safety.sh
-bash -n scripts/*.sh
-git diff --check
-git status --short
-git log --all --oneline -- .env
-```
-
-`.env`, `.venv`, `.python-version`, `artifacts/`, local screenshots, local backup directories を commit しないでください。
-
-`constraints-workshop.txt` は、public repository を Cloud Shell で clone して E2E 検証が通った後、Cloud Shell 上で次を実行して最終化します。
-
-```bash
-python -m pip freeze > constraints-workshop.txt
-```
-
-このファイルは Cloud Shell の手元 install だけでなく、Cloud Run の Docker build と Agent Runtime deploy にも使われます。更新後は、Cloud Run と Agent Runtime の再 deploy まで通して確認してください。

@@ -59,7 +59,7 @@ PY
   if python3 -m venv --help >/dev/null 2>&1; then
     pass "python3 venv module is available"
   else
-    fail "python3 venv module is not available. Cloud Shell should include it; restart Cloud Shell or ask a TA."
+    fail "python3 venv module is not available. Cloud Shell should include it; restart Cloud Shell or ask workshop staff."
   fi
 fi
 

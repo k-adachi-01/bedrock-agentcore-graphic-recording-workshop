@@ -1,10 +1,7 @@
-# Provisional workshop constraints.
+# Workshop constraints.
 #
-# This file pins the currently validated local dependency set so workshop installs
-# do not drift unexpectedly. Treat it as provisional until the public-repo
-# Cloud Shell E2E run passes; then regenerate it from Cloud Shell with:
-#
-#   python -m pip freeze > constraints-workshop.txt
+# This file pins the dependency set used by Cloud Shell, Cloud Run, and
+# Agent Runtime so workshop installs do not drift unexpectedly.
 #
 aiohappyeyeballs==2.6.2
 aiohttp==3.13.5
