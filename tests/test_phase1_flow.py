@@ -226,6 +226,17 @@ def test_runtime_backend_rejects_placeholder_resource_name(monkeypatch):
         asyncio.run(client.summarize_url("https://example.com"))
 
 
+def test_deploy_builds_use_workshop_constraints():
+    root = Path(__file__).resolve().parents[1]
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    deploy_script = (root / "scripts" / "deploy-agent-runtime.py").read_text(encoding="utf-8")
+
+    assert "COPY requirements.txt constraints-workshop.txt" in dockerfile
+    assert "pip install --no-cache-dir -r requirements.txt -c constraints-workshop.txt" in dockerfile
+    assert '"constraints-workshop.txt"' in deploy_script
+    assert '"requirements": requirements_file' in deploy_script
+
+
 def test_user_facing_error_message_mapping():
     from web.main import _display_error
 

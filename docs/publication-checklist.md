@@ -54,6 +54,7 @@ public repository として公開する前に確認する項目です。
 - 個人 Google アカウント参加者向けに Cloud Shell 推奨手順がある
 - 開場〜開始前の Phase 0 手順がある
 - `constraints-workshop.txt` を使った依存固定 install 手順がある
+- Cloud Run と Agent Runtime の build/deploy も `constraints-workshop.txt` の固定版を使う
 - `scripts/preflight-cloud-shell.sh` で事前確認できる
 - `scripts/diagnose-deployment.sh` で TA が状態を確認できる
 - Cloud Shell Web Preview を使う mock fallback 手順がある

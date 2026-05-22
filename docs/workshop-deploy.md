@@ -155,6 +155,7 @@ python -m pip install -r requirements.txt -c constraints-workshop.txt
 ```
 
 `constraints-workshop.txt` はワークショップ用の provisional pin です。public repository を Cloud Shell で E2E 検証した後、Cloud Shell 上の `python -m pip freeze > constraints-workshop.txt` で最終版に更新します。
+Cloud Run と Agent Runtime の build でもこの固定版を使うため、ワークショップ直前に依存バージョンが変わって挙動が変わる事故を避けられます。
 
 ## 3. 環境変数を設定
 
@@ -248,6 +249,7 @@ export GCS_SIGNING_SERVICE_ACCOUNT="${CLOUD_RUN_SA}"
 ## 7. Agent Runtime を deploy
 
 このコマンドは 10〜15 分かかることがあります。途中で出力が止まって見えても、Cloud Build / Agent Runtime の準備が進んでいる場合があります。エラーが出るまでは待ってください。
+Agent Runtime の依存関係は、デフォルトで `constraints-workshop.txt` の固定版を使って deploy されます。
 
 ```bash
 export AGENT_DISPLAY_NAME="graphic-recording-agent"
@@ -539,3 +541,5 @@ git log --all --oneline -- .env
 ```bash
 python -m pip freeze > constraints-workshop.txt
 ```
+
+このファイルは Cloud Shell の手元 install だけでなく、Cloud Run の Docker build と Agent Runtime deploy にも使われます。更新後は、Cloud Run と Agent Runtime の再 deploy まで通して確認してください。

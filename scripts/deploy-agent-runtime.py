@@ -30,6 +30,7 @@ def main() -> None:
         os.getenv("AGENT_RUNTIME_STAGING_BUCKET")
         or required_env("GCS_BUCKET")
     )
+    requirements_file = os.getenv("AGENT_RUNTIME_REQUIREMENTS_FILE", "constraints-workshop.txt")
 
     client = vertexai.Client(project=project_id, location=location)
     remote_agent = client.agent_engines.create(
@@ -38,7 +39,7 @@ def main() -> None:
             "display_name": display_name,
             "description": "Graphic recording workshop ADK agent.",
             "staging_bucket": staging_bucket,
-            "requirements": "requirements.txt",
+            "requirements": requirements_file,
             "extra_packages": ["agent"],
             "agent_framework": "google-adk",
             "env_vars": {
