@@ -154,6 +154,23 @@ else
 fi
 
 echo
+echo "[Recent duration logs]"
+gcloud logging read \
+  'resource.type="cloud_run_revision" AND resource.labels.service_name="'"${SERVICE_NAME}"'" AND (textPayload:"job_duration" OR textPayload:"runtime_call_duration")' \
+  --project="${PROJECT_ID}" \
+  --freshness=30m \
+  --limit=20 \
+  --format='value(timestamp,textPayload)' 2>/dev/null || true
+if [[ -n "${runtime_id}" ]]; then
+  gcloud logging read \
+    'resource.type="aiplatform.googleapis.com/ReasoningEngine" AND resource.labels.reasoning_engine_id="'"${runtime_id}"'" AND textPayload:"workflow_duration"' \
+    --project="${PROJECT_ID}" \
+    --freshness=30m \
+    --limit=20 \
+    --format='value(timestamp,textPayload)' 2>/dev/null || true
+fi
+
+echo
 echo "[Recent Cloud Run logs]"
 gcloud logging read \
   'resource.type="cloud_run_revision" AND resource.labels.service_name="'"${SERVICE_NAME}"'"' \

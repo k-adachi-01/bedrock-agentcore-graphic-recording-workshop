@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -298,6 +299,7 @@ def _schedule_background_task(coro) -> None:
 
 async def _run_summary_job(job_id: str, url: str) -> None:
     job = jobs[job_id]
+    started = time.perf_counter()
 
     async def update_progress(progress: list) -> None:
         job.progress = progress
@@ -314,11 +316,13 @@ async def _run_summary_job(job_id: str, url: str) -> None:
     job.summary = summary
     job.progress = summary.progress
     job.status = "done"
+    _log_job_duration("summary", job_id, started)
 
 
 async def _run_graphic_job(job_id: str, summary: SummaryResult, feedback: str) -> None:
     job = jobs[job_id]
     job.summary = summary
+    started = time.perf_counter()
 
     async def update_progress(progress: list) -> None:
         job.progress = progress
@@ -345,6 +349,7 @@ async def _run_graphic_job(job_id: str, summary: SummaryResult, feedback: str) -
     job.graphic = graphic
     job.progress = graphic.progress
     job.status = "done"
+    _log_job_duration("graphic", job_id, started)
 
 
 def _apply_summary_edits(summary: SummaryResult, summary_text: str, key_points_text: str) -> None:
@@ -419,3 +424,12 @@ def _agent_client():
     if agent_client is None:
         agent_client = build_agent_client()
     return agent_client
+
+
+def _log_job_duration(kind: JobKind, job_id: str, started: float) -> None:
+    logger.info(
+        "job_duration kind=%s job_id=%s elapsed_seconds=%.3f",
+        kind,
+        job_id,
+        time.perf_counter() - started,
+    )

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import asyncio
+import time
 from typing import Optional
 from typing import Protocol
 from uuid import uuid4
@@ -18,6 +20,8 @@ from agent.adk_agent import run_narration_turn
 from agent.models import GraphicResult, SummaryResult
 from agent.models import ProgressStep
 from agent.runtime_contract import RuntimeSummaryPayload, RuntimeWorkflowResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AgentClient(Protocol):
@@ -124,18 +128,33 @@ class RuntimeAgentClient:
         return await asyncio.to_thread(self._run_runtime_operation_sync, remote_agent, payload)
 
     def _run_runtime_operation_sync(self, remote_agent, payload: dict) -> RuntimeWorkflowResponse:
+        started = time.perf_counter()
+        operation = str(payload.get("operation", "unknown"))
         runtime_response = None
         final_text = ""
+        event_count = 0
+        first_event_seconds = None
         for event in remote_agent.stream_query(
             user_id=os.getenv("AGENT_RUNTIME_USER_ID", "workshop-user"),
             message=json.dumps(payload, ensure_ascii=False),
         ):
+            event_count += 1
+            if first_event_seconds is None:
+                first_event_seconds = time.perf_counter() - started
             event_payload = _event_to_plain_data(event)
             candidate = _runtime_response_from_event(event_payload)
             if candidate:
                 runtime_response = candidate
             final_text = _last_text_from_event(event_payload) or final_text
 
+        elapsed_seconds = time.perf_counter() - started
+        logger.info(
+            "runtime_call_duration operation=%s event_count=%s first_event_seconds=%.3f elapsed_seconds=%.3f",
+            operation,
+            event_count,
+            first_event_seconds if first_event_seconds is not None else -1,
+            elapsed_seconds,
+        )
         if runtime_response:
             if runtime_response.error:
                 raise RuntimeError(runtime_response.error)
