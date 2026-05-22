@@ -151,6 +151,12 @@ class RuntimeAgentClient:
         resource_name = os.getenv("AGENT_RUNTIME_RESOURCE_NAME")
         if not resource_name:
             raise RuntimeError("Set AGENT_RUNTIME_RESOURCE_NAME when AGENT_BACKEND=runtime.")
+        if _looks_like_placeholder(resource_name):
+            raise RuntimeError(
+                "AGENT_RUNTIME_RESOURCE_NAME still contains a placeholder. "
+                "Set it to the exact projects/.../locations/.../reasoningEngines/... value "
+                "printed by scripts/deploy-agent-runtime.py."
+            )
 
         import vertexai
 
@@ -267,6 +273,17 @@ def _location_from_resource_name(resource_name: str) -> str:
     if not match:
         return "us-central1"
     return match.group(1)
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    placeholders = (
+        "PROJECT_NUMBER",
+        "RESOURCE_ID",
+        "SERVICE_AGENT_EMAIL_FROM_EFFECTIVE_IDENTITY",
+        "YOUR_PROJECT_ID",
+        "CHANGE_ME",
+    )
+    return any(placeholder in value for placeholder in placeholders)
 
 
 def _event_to_plain_data(event):

@@ -14,17 +14,33 @@ set -euo pipefail
 : "${LOG_LEVEL:=INFO}"
 : "${GCS_SIGNED_URL_TTL_SECONDS:=28800}"
 
+reject_placeholder() {
+  local name="$1"
+  local value="$2"
+  if [[ "${value}" == *PROJECT_NUMBER* || "${value}" == *RESOURCE_ID* || "${value}" == *SERVICE_AGENT_EMAIL_FROM_EFFECTIVE_IDENTITY* || "${value}" == *YOUR_PROJECT_ID* || "${value}" == *CHANGE_ME* ]]; then
+    echo "ERROR: ${name} still contains a placeholder: ${value}" >&2
+    echo "Replace placeholder values with the actual values from your project before deploying." >&2
+    exit 1
+  fi
+}
+
+reject_placeholder "PROJECT_ID" "${PROJECT_ID}"
+reject_placeholder "APP_PASSWORD" "${APP_PASSWORD}"
+
 ENV_VARS="APP_ENV=production,APP_PASSWORD=${APP_PASSWORD},APP_SECRET_KEY=${APP_SECRET_KEY},APP_LOG_FORMAT=json,LOG_LEVEL=${LOG_LEVEL},MOCK_MODE=false,AGENT_BACKEND=${AGENT_BACKEND},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION},GEMINI_TEXT_MODEL=${GEMINI_TEXT_MODEL},GEMINI_IMAGE_MODEL=${GEMINI_IMAGE_MODEL},ARTICLE_FETCH_MAX_BYTES=${ARTICLE_FETCH_MAX_BYTES},GCS_SIGNED_URL_TTL_SECONDS=${GCS_SIGNED_URL_TTL_SECONDS}"
 
 if [[ -n "${AGENT_RUNTIME_RESOURCE_NAME:-}" ]]; then
+  reject_placeholder "AGENT_RUNTIME_RESOURCE_NAME" "${AGENT_RUNTIME_RESOURCE_NAME}"
   ENV_VARS="${ENV_VARS},AGENT_RUNTIME_RESOURCE_NAME=${AGENT_RUNTIME_RESOURCE_NAME},AGENT_RUNTIME_LOCATION=${AGENT_RUNTIME_LOCATION:-us-central1}"
 fi
 
 if [[ -n "${GCS_BUCKET:-}" ]]; then
+  reject_placeholder "GCS_BUCKET" "${GCS_BUCKET}"
   ENV_VARS="${ENV_VARS},GCS_BUCKET=${GCS_BUCKET},GCS_ARTIFACT_PREFIX=${GCS_ARTIFACT_PREFIX:-artifacts}"
 fi
 
 if [[ -n "${GCS_SIGNING_SERVICE_ACCOUNT:-}" ]]; then
+  reject_placeholder "GCS_SIGNING_SERVICE_ACCOUNT" "${GCS_SIGNING_SERVICE_ACCOUNT}"
   ENV_VARS="${ENV_VARS},GCS_SIGNING_SERVICE_ACCOUNT=${GCS_SIGNING_SERVICE_ACCOUNT}"
 fi
 

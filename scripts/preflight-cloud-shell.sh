@@ -55,6 +55,12 @@ PY
   else
     fail "python3 must be 3.10 or newer. Current: $(python3 --version 2>&1)"
   fi
+
+  if python3 -m venv --help >/dev/null 2>&1; then
+    pass "python3 venv module is available"
+  else
+    fail "python3 venv module is not available. Cloud Shell should include it; restart Cloud Shell or ask a TA."
+  fi
 fi
 
 section "Google Cloud auth"

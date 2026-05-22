@@ -210,6 +210,22 @@ def test_runtime_backend_requires_resource_name(monkeypatch):
         asyncio.run(client.summarize_url("https://example.com"))
 
 
+def test_runtime_backend_rejects_placeholder_resource_name(monkeypatch):
+    monkeypatch.setenv("AGENT_BACKEND", "runtime")
+    monkeypatch.setenv(
+        "AGENT_RUNTIME_RESOURCE_NAME",
+        "projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/RESOURCE_ID",
+    )
+
+    from web.agent_client import build_agent_client
+    import asyncio
+    import pytest
+
+    client = build_agent_client()
+    with pytest.raises(RuntimeError, match="placeholder"):
+        asyncio.run(client.summarize_url("https://example.com"))
+
+
 def test_user_facing_error_message_mapping():
     from web.main import _display_error
 
