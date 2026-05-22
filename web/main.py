@@ -367,6 +367,8 @@ def _display_error(exc: Exception) -> str:
 
 def _friendly_error_message(message: str) -> str:
     normalized = message.lower()
+    if "project_number" in normalized or "resource_id" in normalized:
+        return "Agent Runtime の resource name に placeholder が残っています。AGENT_RUNTIME_RESOURCE_NAME を実際の projects/.../reasoningEngines/... に設定して Cloud Run を再 deploy してください。"
     if "publisher model" in normalized or ("model" in normalized and "404" in normalized):
         return "Gemini model が見つかりません。model ID と GOOGLE_CLOUD_LOCATION=global の設定を確認してください。"
     if "signed url" in normalized or "signblob" in normalized or "serviceaccounttokencreator" in normalized:

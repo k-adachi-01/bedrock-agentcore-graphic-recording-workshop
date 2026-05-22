@@ -18,6 +18,11 @@ cloud_run_revision=""
 runtime_from_cloud_run=""
 signer_from_cloud_run=""
 
+looks_like_placeholder() {
+  local value="$1"
+  [[ "${value}" == *PROJECT_NUMBER* || "${value}" == *RESOURCE_ID* || "${value}" == *SERVICE_AGENT_EMAIL_FROM_EFFECTIVE_IDENTITY* || "${value}" == *YOUR_PROJECT_ID* || "${value}" == *CHANGE_ME* ]]
+}
+
 if gcloud run services describe "${SERVICE_NAME}" \
   --region "${REGION}" \
   --project "${PROJECT_ID}" \
@@ -59,6 +64,9 @@ runtime_id=""
 if [[ -n "${agent_runtime_resource}" ]]; then
   runtime_status="configured"
   runtime_id="${agent_runtime_resource##*/}"
+  if looks_like_placeholder "${agent_runtime_resource}"; then
+    runtime_status="placeholder value"
+  fi
 fi
 
 recent_error="$(
@@ -77,6 +85,9 @@ echo "Region: ${REGION}"
 echo "Cloud Run: ${cloud_run_status}${cloud_run_revision:+ (revision: ${cloud_run_revision})}"
 echo "Cloud Run URL: ${cloud_run_url:-n/a}"
 echo "Agent Runtime: ${runtime_status}${runtime_id:+ (${runtime_id})}"
+if [[ "${runtime_status}" == "placeholder value" ]]; then
+  echo "Action required: set AGENT_RUNTIME_RESOURCE_NAME to the real projects/.../reasoningEngines/... value and redeploy Cloud Run."
+fi
 echo "Bucket: ${bucket_status} (gs://${GCS_BUCKET})"
 echo "Signed URL signer: ${signer_from_cloud_run:-${GCS_SIGNING_SERVICE_ACCOUNT:-n/a}}"
 echo "Last ERROR log in 5 min: ${recent_error:-none}"
