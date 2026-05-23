@@ -34,10 +34,6 @@
   display: none;
 }
 
-.locked-actions {
-  display: none;
-}
-
 [data-summary-review][data-locked="true"] textarea {
   background: #f8fafc;
   color: #475569;
@@ -48,7 +44,7 @@
 }
 
 [data-summary-review][data-locked="true"] .lock-hidden {
-  display: none;
+  display: none !important;
 }
 
 [data-summary-review][data-locked="true"] .summary-card-grid {
@@ -57,10 +53,6 @@
 
 [data-summary-review][data-locked="true"] .locked-visible {
   display: inline-flex;
-}
-
-[data-summary-review][data-locked="true"] .locked-actions {
-  display: flex;
 }
 
 body.has-workflow .control-panel {

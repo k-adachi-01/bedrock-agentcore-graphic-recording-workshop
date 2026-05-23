@@ -172,21 +172,6 @@
           event.detail.target.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       });
-
-      document.body.addEventListener("click", function (event) {
-        const button = event.target.closest("[data-unlock-summary]");
-        if (!button) {
-          return;
-        }
-        const review = button.closest("[data-summary-review]");
-        unlockSummaryReview(review);
-        const stage = document.getElementById("graphic-stage");
-        if (stage) {
-          stage.innerHTML = "";
-        }
-        setWorkflowStep(2);
-        review.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
     </script>
   </body>
 </html>

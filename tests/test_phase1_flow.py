@@ -30,7 +30,7 @@ def test_phase1_url_to_svg_regeneration_flow():
     assert 'data-summary-review' in summary
     assert 'hx-target="#graphic-stage"' in summary
     assert 'id="graphic-stage"' in summary
-    assert "要約を修正して再生成" in summary
+    assert "要約を修正して再生成" not in summary
     assert "Step 2 of 4" not in summary
     assert "Step 5-8" not in summary
 
