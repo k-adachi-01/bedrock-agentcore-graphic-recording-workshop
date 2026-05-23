@@ -10,7 +10,7 @@
   {% if job.kind == "graphic" %}data-workflow-step="3"{% endif %}
   {% if job.status == "running" %}
     hx-get="/jobs/{{ job.job_id }}"
-    hx-trigger="every 600ms"
+    hx-trigger="every 1500ms"
     hx-swap="outerHTML"
   {% endif %}
 >

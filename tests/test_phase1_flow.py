@@ -182,6 +182,17 @@ def test_summary_lock_does_not_target_result_feedback_textarea():
     assert '[data-summary-review][data-locked="true"] textarea' not in styles
 
 
+def test_job_polling_and_swap_animation_are_calm():
+    job = (Path(__file__).resolve().parents[1] / "web/templates/partials/job.html").read_text()
+    styles = (Path(__file__).resolve().parents[1] / "web/static/styles.css").read_text()
+
+    assert 'hx-trigger="every 1500ms"' in job
+    assert 'every 600ms' not in job
+    assert "#graphic-stage > section" in styles
+    assert "@keyframes fade-in" in styles
+    assert "form.htmx-request button" in styles
+
+
 def test_adk_backend_adds_narration_progress(monkeypatch):
     monkeypatch.setenv("MOCK_MODE", "true")
     monkeypatch.setenv("MOCK_STEP_DELAY", "0")
