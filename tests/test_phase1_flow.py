@@ -27,6 +27,12 @@ def test_phase1_url_to_svg_regeneration_flow():
     summary = _poll_job(client, summary_job_id)
     assert "要約確認" in summary
     assert "3 行要約を編集" in summary
+    assert 'data-summary-review' in summary
+    assert 'hx-target="#graphic-stage"' in summary
+    assert 'id="graphic-stage"' in summary
+    assert "要約を修正して再生成" not in summary
+    assert "Step 2 of 4" not in summary
+    assert "Step 5-8" not in summary
 
     session_id = summary.split('name="session_id" value="', 1)[1].split('"', 1)[0]
     graphic_job = client.post(
@@ -38,10 +44,21 @@ def test_phase1_url_to_svg_regeneration_flow():
         },
     )
     assert graphic_job.status_code == 200
+    assert 'hx-swap-oob="true"' in graphic_job.text
+    assert 'data-workflow-step="3"' in graphic_job.text
+    assert "Step 3 of 4" not in graphic_job.text
     graphic_job_id = _job_id(graphic_job.text, "graphic")
 
     graphic = _poll_job(client, graphic_job_id)
     assert "グラレコ結果" in graphic
+    assert 'data-workflow-step="4"' in graphic
+    assert 'data-current-step="4"' in graphic
+    assert 'hx-swap-oob="true"' in graphic
+    assert 'aria-current="step"' in graphic
+    assert "Step 4 of 4" not in graphic
+    assert "Step 5-8" not in graphic
+    assert "生成中..." not in graphic
+    assert "生成完了" in graphic
     assert "生成画像" in graphic
     assert "生成情報" in graphic
     assert "<svg" in graphic
@@ -133,6 +150,106 @@ def test_image_artifact_helpers():
     assert display_model_name("gemini-3-pro-image-preview").endswith("(Nano Banana Pro)")
 
 
+def test_fallback_svg_keeps_heading_and_summary_text_separate():
+    from agent.tools import render_svg
+    import asyncio
+
+    svg = asyncio.run(
+        render_svg(
+            "Demo",
+            [
+                "Agent が記事取得から要約、画像生成までを一連の workflow として進めます。",
+                "ADK では fetch / summarize / plan / render などの tool を分けて実装します。",
+                "Phase 1 は mock mode と fallback SVG により、外部 API なしで確認します。",
+            ],
+            ["Web App は Agent Runtime 上の Agent を呼び出す境界を持つ"],
+            ["中央に要約を配置"],
+        )
+    )
+
+    assert 'y="180" class="label">3 Line Summary' in svg
+    assert '<tspan x="78" y="214">' in svg
+    assert 'class="summary"><tspan' in svg
+    assert "Demo..." not in svg
+
+
+def test_svg_text_wrap_only_adds_ellipsis_when_truncated():
+    from agent.tools import _wrap_svg_text
+
+    assert _wrap_svg_text("Demo", max_chars=34, max_lines=2) == ["Demo"]
+    assert _wrap_svg_text("短いタイトル", max_chars=34, max_lines=2) == ["短いタイトル"]
+    assert _wrap_svg_text("あ" * 40, max_chars=29, max_lines=2) == [
+        "あ" * 29,
+        "あ" * 11,
+    ]
+    assert _wrap_svg_text("あ" * 80, max_chars=15, max_lines=3)[-1].endswith("...")
+
+
+def test_fallback_svg_wraps_dense_japanese_text():
+    from agent.tools import _wrap_svg_text, render_svg
+    import asyncio
+    import html
+    import re
+
+    wrapped = _wrap_svg_text("あ" * 80, max_chars=15, max_lines=3)
+
+    assert len(wrapped) == 3
+    assert all(len(line) <= 18 for line in wrapped)
+    assert wrapped[-1].endswith("...")
+
+    svg = asyncio.run(
+        render_svg(
+            "とても長いタイトルのブログ記事を Agent Runtime でグラレコに変換するデモ",
+            ["あ" * 80, "い" * 80, "う" * 80],
+            ["え" * 80, "お" * 80, "か" * 80, "き" * 80],
+            ["く" * 90, "け" * 90, "こ" * 90],
+        )
+    )
+    key_point_lines = [
+        html.unescape(match)
+        for match in re.findall(r'<tspan x="808" y="[^"]+">([^<]+)</tspan>', svg)
+    ]
+
+    assert 'class="title"><tspan' in svg
+    assert key_point_lines
+    assert all(len(line) <= 16 for line in key_point_lines)
+
+
+def test_summary_lock_does_not_target_result_feedback_textarea():
+    index = (Path(__file__).resolve().parents[1] / "web/templates/index.html").read_text()
+    styles = (Path(__file__).resolve().parents[1] / "web/static/styles.css").read_text()
+
+    assert 'return review.querySelectorAll(".summary-card-grid textarea");' in index
+    assert 'review.querySelectorAll("textarea")' not in index
+    assert '[data-summary-review][data-locked="true"] .summary-card-grid textarea' in styles
+    assert '[data-summary-review][data-locked="true"] textarea' not in styles
+
+
+def test_graphic_failure_unlocks_summary_review_and_preserves_stage_until_swap():
+    index = (Path(__file__).resolve().parents[1] / "web/templates/index.html").read_text()
+    job = (Path(__file__).resolve().parents[1] / "web/templates/partials/job.html").read_text()
+    graphic = (Path(__file__).resolve().parents[1] / "web/templates/partials/graphic.html").read_text()
+
+    assert 'data-workflow-status="{{ job.status }}"' in job
+    assert 'data-workflow-status="done"' in graphic
+    assert 'updatedStep.dataset.workflowStatus === "failed"' in index
+    assert "unlockSummaryReview(review);" in index
+    assert "stage.innerHTML" not in index
+    assert "data-graphic-workflow" in graphic
+
+
+def test_job_polling_and_swap_animation_are_calm():
+    job = (Path(__file__).resolve().parents[1] / "web/templates/partials/job.html").read_text()
+    styles = (Path(__file__).resolve().parents[1] / "web/static/styles.css").read_text()
+
+    assert 'hx-trigger="every 1500ms"' in job
+    assert 'every 600ms' not in job
+    assert 'job.kind == "summary"' in job
+    assert "#graphic-stage > section" in styles
+    assert "@keyframes fade-in" in styles
+    assert "form.htmx-request button" in styles
+
+
 def test_adk_backend_adds_narration_progress(monkeypatch):
     monkeypatch.setenv("MOCK_MODE", "true")
     monkeypatch.setenv("MOCK_STEP_DELAY", "0")
@@ -175,7 +292,7 @@ def test_password_auth_redirects_and_allows_login(monkeypatch):
 
     authenticated_root = client.get("/")
     assert authenticated_root.status_code == 200
-    assert "Blog URL to Graphic Recording" in authenticated_root.text
+    assert "ブログ記事を 1 枚のグラレコに" in authenticated_root.text
 
 
 def test_production_requires_app_password(monkeypatch):
