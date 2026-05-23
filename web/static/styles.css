@@ -30,6 +30,10 @@
   display: none;
 }
 
+.locked-visible {
+  display: none;
+}
+
 [data-summary-review][data-locked="true"] textarea {
   background: #f8fafc;
   color: #475569;

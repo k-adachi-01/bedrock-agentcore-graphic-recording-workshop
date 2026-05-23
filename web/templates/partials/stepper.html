@@ -9,7 +9,11 @@
     {% for number, label in [(1, "URL 取得"), (2, "要約確認"), (3, "グラレコ生成"), (4, "完了")] %}
       {% set is_done = number < current_step %}
       {% set is_active = number == current_step %}
-      <li data-step-number="{{ number }}" class="flex items-center gap-2{% if is_done %} text-teal-700{% elif is_active %} text-blue-700{% endif %}">
+      <li
+        data-step-number="{{ number }}"
+        {% if is_active %}aria-current="step"{% endif %}
+        class="flex items-center gap-2{% if is_done %} text-teal-700{% elif is_active %} text-blue-700{% endif %}"
+      >
         <span data-step-marker class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold{% if is_done %} bg-teal-100{% elif is_active %} bg-blue-100{% else %} bg-slate-100 text-slate-500{% endif %}">
           {{ number }}
         </span>
