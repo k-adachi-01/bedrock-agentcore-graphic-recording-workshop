@@ -214,7 +214,7 @@ def test_password_auth_redirects_and_allows_login(monkeypatch):
 
     authenticated_root = client.get("/")
     assert authenticated_root.status_code == 200
-    assert "Blog URL to Graphic Recording" in authenticated_root.text
+    assert "ブログ記事を 1 枚のグラレコに" in authenticated_root.text
 
 
 def test_production_requires_app_password(monkeypatch):
