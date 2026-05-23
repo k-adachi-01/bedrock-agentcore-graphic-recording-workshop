@@ -27,6 +27,11 @@ def test_phase1_url_to_svg_regeneration_flow():
     summary = _poll_job(client, summary_job_id)
     assert "要約確認" in summary
     assert "3 行要約を編集" in summary
+    assert 'data-summary-review' in summary
+    assert 'hx-target="#graphic-stage"' in summary
+    assert 'id="graphic-stage"' in summary
+    assert "Step 2 of 4" not in summary
+    assert "Step 5-8" not in summary
 
     session_id = summary.split('name="session_id" value="', 1)[1].split('"', 1)[0]
     graphic_job = client.post(
@@ -38,10 +43,18 @@ def test_phase1_url_to_svg_regeneration_flow():
         },
     )
     assert graphic_job.status_code == 200
+    assert 'hx-swap-oob="true"' in graphic_job.text
+    assert 'data-workflow-step="3"' in graphic_job.text
+    assert "Step 3 of 4" not in graphic_job.text
     graphic_job_id = _job_id(graphic_job.text, "graphic")
 
     graphic = _poll_job(client, graphic_job_id)
     assert "グラレコ結果" in graphic
+    assert 'data-workflow-step="4"' in graphic
+    assert 'hx-swap-oob="true"' in graphic
+    assert "Step 4 of 4" not in graphic
+    assert "Step 5-8" not in graphic
+    assert "生成中..." not in graphic
     assert "生成画像" in graphic
     assert "生成情報" in graphic
     assert "<svg" in graphic
@@ -131,6 +144,28 @@ def test_image_artifact_helpers():
     assert artifact_url_for_path("/tmp/custom-artifacts/abc.png") == "/artifacts/abc.png"
     assert display_model_name("gemini-2.5-flash-image").endswith("(Nano Banana)")
     assert display_model_name("gemini-3-pro-image-preview").endswith("(Nano Banana Pro)")
+
+
+def test_fallback_svg_keeps_heading_and_summary_text_separate():
+    from agent.tools import render_svg
+    import asyncio
+
+    svg = asyncio.run(
+        render_svg(
+            "Demo",
+            [
+                "Agent が記事取得から要約、画像生成までを一連の workflow として進めます。",
+                "ADK では fetch / summarize / plan / render などの tool を分けて実装します。",
+                "Phase 1 は mock mode と fallback SVG により、外部 API なしで確認します。",
+            ],
+            ["Web App は Agent Runtime 上の Agent を呼び出す境界を持つ"],
+            ["中央に要約を配置"],
+        )
+    )
+
+    assert 'y="180" class="label">3 Line Summary' in svg
+    assert '<tspan x="78" y="212">' in svg
+    assert 'class="summary"><tspan' in svg
 
 
 def test_adk_backend_adds_narration_progress(monkeypatch):

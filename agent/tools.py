@@ -386,7 +386,7 @@ async def render_svg(
     accent = palette["accent"]
     safe_title = html.escape(title)
     summary_items = "".join(
-        f'<text x="78" y="{180 + i * 34}" class="summary">{html.escape(line)}</text>'
+        _summary_node(i, line)
         for i, line in enumerate(summary_lines)
     )
     point_items = "".join(
@@ -420,28 +420,28 @@ async def render_svg(
   <rect x="40" y="36" width="1020" height="92" rx="8" fill="{accent}" />
   <text x="72" y="92" font-family="sans-serif" font-size="34" font-weight="800" fill="#ffffff">{safe_title}</text>
 
-  <rect class="panel" x="54" y="150" width="640" height="166" rx="8" />
-  <text x="78" y="172" class="label">3 Line Summary</text>
+  <rect class="panel" x="54" y="150" width="640" height="190" rx="8" />
+  <text x="78" y="180" class="label">3 Line Summary</text>
   {summary_items}
 
   <rect class="panel" x="732" y="150" width="314" height="380" rx="8" />
   <text x="758" y="184" class="label">Key Points</text>
   {point_items}
 
-  <rect class="panel" x="54" y="350" width="640" height="180" rx="8" />
-  <text x="78" y="386" class="label">Agent Flow</text>
-  <circle cx="130" cy="444" r="34" fill="{palette["soft"]}" stroke="{accent}" stroke-width="3" />
-  <text x="106" y="450" class="small">URL</text>
-  <path class="arrow" d="M166 444 H256" />
-  <circle cx="306" cy="444" r="42" fill="#ecfeff" stroke="#0891b2" stroke-width="3" />
-  <text x="280" y="450" class="small">ADK</text>
-  <path class="arrow" d="M350 444 H454" />
-  <circle cx="510" cy="444" r="50" fill="#fef3c7" stroke="#d97706" stroke-width="3" />
-  <text x="465" y="440" class="small">Agent</text>
-  <text x="463" y="460" class="small">Runtime</text>
-  <path class="arrow" d="M562 444 H612" />
-  <rect x="620" y="407" width="50" height="74" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="3" />
-  <text x="630" y="449" class="small">SVG</text>
+  <rect class="panel" x="54" y="364" width="640" height="166" rx="8" />
+  <text x="78" y="398" class="label">Agent Flow</text>
+  <circle cx="130" cy="456" r="34" fill="{palette["soft"]}" stroke="{accent}" stroke-width="3" />
+  <text x="106" y="462" class="small">URL</text>
+  <path class="arrow" d="M166 456 H256" />
+  <circle cx="306" cy="456" r="42" fill="#ecfeff" stroke="#0891b2" stroke-width="3" />
+  <text x="280" y="462" class="small">ADK</text>
+  <path class="arrow" d="M350 456 H454" />
+  <circle cx="510" cy="456" r="50" fill="#fef3c7" stroke="#d97706" stroke-width="3" />
+  <text x="465" y="452" class="small">Agent</text>
+  <text x="463" y="472" class="small">Runtime</text>
+  <path class="arrow" d="M562 456 H612" />
+  <rect x="620" y="419" width="50" height="74" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="3" />
+  <text x="630" y="461" class="small">SVG</text>
 
   <rect x="54" y="562" width="992" height="74" rx="8" fill="#e2e8f0" />
   <text x="78" y="592" class="label">Visual Plan</text>
@@ -944,10 +944,47 @@ def _extension_for_mime_type(mime_type: str) -> str:
     }.get(mime_type, ".bin")
 
 
+def _summary_node(index: int, line: str) -> str:
+    y = 212 + index * 42
+    text = f"{index + 1}. {line}"
+    tspans = _svg_tspans(text, x=78, first_y=y, max_chars=34, max_lines=2, line_gap=21)
+    return f'<text class="summary">{tspans}</text>'
+
+
 def _point_node(index: int, point: str, accent: str) -> str:
     y = 230 + index * 72
-    safe_point = html.escape(point[:48])
+    tspans = _svg_tspans(point, x=808, first_y=y - 4, max_chars=22, max_lines=2, line_gap=18)
     return f"""
   <circle cx="774" cy="{y}" r="18" fill="{accent}" opacity="0.9" />
   <text x="768" y="{y + 6}" font-family="sans-serif" font-size="17" font-weight="800" fill="#ffffff">{index + 1}</text>
-  <text x="808" y="{y + 5}" class="small">{safe_point}</text>"""
+  <text class="small">{tspans}</text>"""
+
+
+def _svg_tspans(text: str, x: int, first_y: int, max_chars: int, max_lines: int, line_gap: int) -> str:
+    lines = _wrap_svg_text(text, max_chars=max_chars, max_lines=max_lines)
+    return "".join(
+        f'<tspan x="{x}" y="{first_y + i * line_gap}">{html.escape(line)}</tspan>'
+        for i, line in enumerate(lines)
+    )
+
+
+def _wrap_svg_text(text: str, max_chars: int, max_lines: int) -> list[str]:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if not compact:
+        return [""]
+
+    lines: list[str] = []
+    remaining = compact
+    while remaining and len(lines) < max_lines:
+        if len(remaining) <= max_chars:
+            lines.append(remaining)
+            break
+        split_at = remaining.rfind(" ", 0, max_chars + 1)
+        if split_at < max_chars // 2:
+            split_at = max_chars
+        lines.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+
+    if remaining and lines:
+        lines[-1] = lines[-1].rstrip("。,.、") + "..."
+    return lines

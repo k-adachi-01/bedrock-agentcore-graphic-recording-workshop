@@ -1,6 +1,13 @@
+{% if job.kind == "graphic" %}
+  {% set active_step = 3 %}
+  {% set stepper_oob = true %}
+  {% include "partials/stepper.html" with context %}
+{% endif %}
+
 <section
   id="{{ job.job_id }}"
   class="space-y-6"
+  {% if job.kind == "graphic" %}data-workflow-step="3"{% endif %}
   {% if job.status == "running" %}
     hx-get="/jobs/{{ job.job_id }}"
     hx-trigger="every 600ms"
@@ -8,7 +15,7 @@
   {% endif %}
 >
   <div>
-    <p class="text-sm font-semibold text-blue-700">Agent is working</p>
+    <p class="text-sm font-semibold text-blue-700">Agent 処理中</p>
     <h2 class="mt-1 text-2xl font-bold text-slate-950">{{ job.title }}</h2>
   </div>
 
@@ -23,8 +30,8 @@
         {% if job.kind == "graphic" and job.summary %}
           <form
             hx-post="/graphics"
-            hx-target="#workspace"
-            hx-swap="innerHTML"
+            hx-target="closest section"
+            hx-swap="outerHTML"
             hx-disabled-elt="find button[type='submit']"
           >
             <input type="hidden" name="session_id" value="{{ job.summary.session_id }}" />
@@ -60,13 +67,25 @@
         </div>
       {% endif %}
     {% endif %}
-    {% set steps = job.progress %}
-    {% set progress_title = "Agent 進行状況" %}
-    {% include "partials/progress.html" with context %}
+    <details open class="rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <summary class="cursor-pointer text-sm font-bold text-slate-800">Agent 処理ログ</summary>
+      <div class="mt-4 border-t border-slate-100 pt-4">
+        {% set steps = job.progress %}
+        {% set progress_title = "Agent 進行状況" %}
+        {% set progress_shell = "plain" %}
+        {% include "partials/progress.html" with context %}
+      </div>
+    </details>
     {% if job.show_estimated_progress %}
-      {% set steps = job.estimated_progress %}
-      {% set progress_title = "現在の目安" %}
-      {% include "partials/progress.html" with context %}
+      <details open class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+        <summary class="cursor-pointer text-sm font-bold text-blue-900">現在の目安</summary>
+        <div class="mt-4 border-t border-blue-100 pt-4">
+          {% set steps = job.estimated_progress %}
+          {% set progress_title = "現在の目安" %}
+          {% set progress_shell = "plain" %}
+          {% include "partials/progress.html" with context %}
+        </div>
+      </details>
     {% endif %}
   {% endif %}
 </section>
