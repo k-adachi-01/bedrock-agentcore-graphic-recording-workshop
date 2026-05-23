@@ -34,10 +34,15 @@
   display: none;
 }
 
+.locked-actions {
+  display: none;
+}
+
 [data-summary-review][data-locked="true"] textarea {
   background: #f8fafc;
   color: #475569;
   opacity: 0.72;
+  overflow: hidden;
   pointer-events: none;
   resize: none;
 }
@@ -52,6 +57,10 @@
 
 [data-summary-review][data-locked="true"] .locked-visible {
   display: inline-flex;
+}
+
+[data-summary-review][data-locked="true"] .locked-actions {
+  display: flex;
 }
 
 body.has-workflow .control-panel {

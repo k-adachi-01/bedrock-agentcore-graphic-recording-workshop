@@ -30,6 +30,7 @@ def test_phase1_url_to_svg_regeneration_flow():
     assert 'data-summary-review' in summary
     assert 'hx-target="#graphic-stage"' in summary
     assert 'id="graphic-stage"' in summary
+    assert "要約を修正して再生成" in summary
     assert "Step 2 of 4" not in summary
     assert "Step 5-8" not in summary
 
@@ -51,10 +52,13 @@ def test_phase1_url_to_svg_regeneration_flow():
     graphic = _poll_job(client, graphic_job_id)
     assert "グラレコ結果" in graphic
     assert 'data-workflow-step="4"' in graphic
+    assert 'data-current-step="4"' in graphic
     assert 'hx-swap-oob="true"' in graphic
+    assert 'aria-current="step"' in graphic
     assert "Step 4 of 4" not in graphic
     assert "Step 5-8" not in graphic
     assert "生成中..." not in graphic
+    assert "生成完了" in graphic
     assert "生成画像" in graphic
     assert "生成情報" in graphic
     assert "<svg" in graphic

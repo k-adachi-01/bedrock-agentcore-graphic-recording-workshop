@@ -82,10 +82,14 @@
           const number = Number(item.dataset.stepNumber);
           const marker = item.querySelector("[data-step-marker]");
           item.className = "flex items-center gap-2";
+          item.removeAttribute("aria-current");
           if (marker) {
             marker.className = "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold";
           }
-          if (number < currentStep) {
+          if (number === currentStep) {
+            item.setAttribute("aria-current", "step");
+          }
+          if (number < currentStep || (currentStep === 4 && number === 4)) {
             item.classList.add("text-teal-700");
             if (marker) {
               marker.classList.add("bg-teal-100");
@@ -98,6 +102,37 @@
           } else if (marker) {
             marker.classList.add("bg-slate-100", "text-slate-500");
           }
+        });
+      }
+
+      function fitReviewTextareas(review) {
+        review.querySelectorAll("textarea").forEach(function (textarea) {
+          textarea.style.height = "auto";
+          textarea.style.height = `${textarea.scrollHeight + 2}px`;
+        });
+      }
+
+      function lockSummaryReview(review) {
+        if (!review) {
+          return;
+        }
+        review.dataset.locked = "true";
+        review.querySelectorAll("textarea").forEach(function (textarea) {
+          textarea.readOnly = true;
+          textarea.style.overflow = "hidden";
+        });
+        fitReviewTextareas(review);
+      }
+
+      function unlockSummaryReview(review) {
+        if (!review) {
+          return;
+        }
+        delete review.dataset.locked;
+        review.querySelectorAll("textarea").forEach(function (textarea) {
+          textarea.readOnly = false;
+          textarea.style.height = "";
+          textarea.style.overflow = "";
         });
       }
 
@@ -114,27 +149,43 @@
           if (stage) {
             stage.innerHTML = "";
           }
+          lockSummaryReview(event.target.closest("[data-summary-review]"));
           setWorkflowStep(3);
         }
       });
 
       document.body.addEventListener("htmx:afterRequest", function (event) {
-        if (event.target && event.target.matches("[data-graphic-workflow]") && event.detail.successful) {
+        if (event.target && event.target.matches("[data-graphic-workflow]") && !event.detail.successful) {
           const review = event.target.closest("[data-summary-review]");
-          if (review) {
-            review.dataset.locked = "true";
-          }
+          unlockSummaryReview(review);
+          setWorkflowStep(2);
         }
       });
 
       document.body.addEventListener("htmx:afterSwap", function (event) {
         if (event.detail.target && event.detail.target.id === "graphic-stage") {
+          lockSummaryReview(document.querySelector("[data-summary-review]"));
           const updatedStep = event.detail.target.querySelector("[data-workflow-step]");
           if (updatedStep) {
             setWorkflowStep(updatedStep.dataset.workflowStep);
           }
           event.detail.target.scrollIntoView({ behavior: "smooth", block: "start" });
         }
+      });
+
+      document.body.addEventListener("click", function (event) {
+        const button = event.target.closest("[data-unlock-summary]");
+        if (!button) {
+          return;
+        }
+        const review = button.closest("[data-summary-review]");
+        unlockSummaryReview(review);
+        const stage = document.getElementById("graphic-stage");
+        if (stage) {
+          stage.innerHTML = "";
+        }
+        setWorkflowStep(2);
+        review.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     </script>
   </body>
