@@ -108,8 +108,12 @@
         });
       }
 
+      function getSummaryTextareas(review) {
+        return review.querySelectorAll(".summary-card-grid textarea");
+      }
+
       function fitReviewTextareas(review) {
-        review.querySelectorAll("textarea").forEach(function (textarea) {
+        getSummaryTextareas(review).forEach(function (textarea) {
           textarea.style.height = "auto";
           textarea.style.height = `${textarea.scrollHeight + 2}px`;
         });
@@ -134,7 +138,7 @@
         }
         review.dataset.locked = "true";
         setSummaryLockedUi(review, true);
-        review.querySelectorAll("textarea").forEach(function (textarea) {
+        getSummaryTextareas(review).forEach(function (textarea) {
           textarea.readOnly = true;
           textarea.style.overflow = "hidden";
         });
@@ -147,7 +151,7 @@
         }
         delete review.dataset.locked;
         setSummaryLockedUi(review, false);
-        review.querySelectorAll("textarea").forEach(function (textarea) {
+        getSummaryTextareas(review).forEach(function (textarea) {
           textarea.readOnly = false;
           textarea.style.height = "";
           textarea.style.overflow = "";

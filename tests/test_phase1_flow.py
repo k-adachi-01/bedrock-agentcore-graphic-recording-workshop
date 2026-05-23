@@ -172,6 +172,13 @@ def test_fallback_svg_keeps_heading_and_summary_text_separate():
     assert 'class="summary"><tspan' in svg
 
 
+def test_summary_lock_does_not_target_result_feedback_textarea():
+    index = (Path(__file__).resolve().parents[1] / "web/templates/index.html").read_text()
+
+    assert 'return review.querySelectorAll(".summary-card-grid textarea");' in index
+    assert 'review.querySelectorAll("textarea")' not in index
+
+
 def test_adk_backend_adds_narration_progress(monkeypatch):
     monkeypatch.setenv("MOCK_MODE", "true")
     monkeypatch.setenv("MOCK_STEP_DELAY", "0")
