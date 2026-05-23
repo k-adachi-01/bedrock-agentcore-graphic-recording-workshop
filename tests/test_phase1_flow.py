@@ -168,8 +168,38 @@ def test_fallback_svg_keeps_heading_and_summary_text_separate():
     )
 
     assert 'y="180" class="label">3 Line Summary' in svg
-    assert '<tspan x="78" y="212">' in svg
+    assert '<tspan x="78" y="214">' in svg
     assert 'class="summary"><tspan' in svg
+
+
+def test_fallback_svg_wraps_dense_japanese_text():
+    from agent.tools import _wrap_svg_text, render_svg
+    import asyncio
+    import html
+    import re
+
+    wrapped = _wrap_svg_text("あ" * 80, max_chars=15, max_lines=3)
+
+    assert len(wrapped) == 3
+    assert all(len(line) <= 18 for line in wrapped)
+    assert wrapped[-1].endswith("...")
+
+    svg = asyncio.run(
+        render_svg(
+            "とても長いタイトルのブログ記事を Agent Runtime でグラレコに変換するデモ",
+            ["あ" * 80, "い" * 80, "う" * 80],
+            ["え" * 80, "お" * 80, "か" * 80, "き" * 80],
+            ["く" * 90, "け" * 90, "こ" * 90],
+        )
+    )
+    key_point_lines = [
+        html.unescape(match)
+        for match in re.findall(r'<tspan x="808" y="[^"]+">([^<]+)</tspan>', svg)
+    ]
+
+    assert 'class="title"><tspan' in svg
+    assert key_point_lines
+    assert all(len(line) <= 18 for line in key_point_lines)
 
 
 def test_summary_lock_does_not_target_result_feedback_textarea():
