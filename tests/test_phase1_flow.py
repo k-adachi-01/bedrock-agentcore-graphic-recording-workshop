@@ -174,9 +174,12 @@ def test_fallback_svg_keeps_heading_and_summary_text_separate():
 
 def test_summary_lock_does_not_target_result_feedback_textarea():
     index = (Path(__file__).resolve().parents[1] / "web/templates/index.html").read_text()
+    styles = (Path(__file__).resolve().parents[1] / "web/static/styles.css").read_text()
 
     assert 'return review.querySelectorAll(".summary-card-grid textarea");' in index
     assert 'review.querySelectorAll("textarea")' not in index
+    assert '[data-summary-review][data-locked="true"] .summary-card-grid textarea' in styles
+    assert '[data-summary-review][data-locked="true"] textarea' not in styles
 
 
 def test_adk_backend_adds_narration_progress(monkeypatch):

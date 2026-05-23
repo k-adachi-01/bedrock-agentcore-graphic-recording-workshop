@@ -34,7 +34,7 @@
   display: none;
 }
 
-[data-summary-review][data-locked="true"] textarea {
+[data-summary-review][data-locked="true"] .summary-card-grid textarea {
   background: #f8fafc;
   color: #475569;
   opacity: 0.72;
