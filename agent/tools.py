@@ -966,7 +966,7 @@ def _summary_node(index: int, line: str) -> str:
 
 def _point_node(index: int, point: str, accent: str) -> str:
     y = 230 + index * 72
-    tspans = _svg_tspans(point, x=808, first_y=y - 16, max_chars=15, max_lines=3, line_gap=16)
+    tspans = _svg_tspans(point, x=808, first_y=y - 16, max_chars=13, max_lines=3, line_gap=16)
     return f"""
   <circle cx="774" cy="{y}" r="18" fill="{accent}" opacity="0.9" />
   <text x="768" y="{y + 6}" font-family="sans-serif" font-size="17" font-weight="800" fill="#ffffff">{index + 1}</text>
@@ -991,6 +991,7 @@ def _wrap_svg_text(text: str, max_chars: int, max_lines: int) -> list[str]:
     while remaining and len(lines) < max_lines:
         if len(remaining) <= max_chars:
             lines.append(remaining)
+            remaining = ""
             break
         split_at = remaining.rfind(" ", 0, max_chars + 1)
         if split_at < max_chars // 2:

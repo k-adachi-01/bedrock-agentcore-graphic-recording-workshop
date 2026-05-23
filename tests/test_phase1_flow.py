@@ -170,6 +170,19 @@ def test_fallback_svg_keeps_heading_and_summary_text_separate():
     assert 'y="180" class="label">3 Line Summary' in svg
     assert '<tspan x="78" y="214">' in svg
     assert 'class="summary"><tspan' in svg
+    assert "Demo..." not in svg
+
+
+def test_svg_text_wrap_only_adds_ellipsis_when_truncated():
+    from agent.tools import _wrap_svg_text
+
+    assert _wrap_svg_text("Demo", max_chars=34, max_lines=2) == ["Demo"]
+    assert _wrap_svg_text("短いタイトル", max_chars=34, max_lines=2) == ["短いタイトル"]
+    assert _wrap_svg_text("あ" * 40, max_chars=29, max_lines=2) == [
+        "あ" * 29,
+        "あ" * 11,
+    ]
+    assert _wrap_svg_text("あ" * 80, max_chars=15, max_lines=3)[-1].endswith("...")
 
 
 def test_fallback_svg_wraps_dense_japanese_text():
@@ -199,7 +212,7 @@ def test_fallback_svg_wraps_dense_japanese_text():
 
     assert 'class="title"><tspan' in svg
     assert key_point_lines
-    assert all(len(line) <= 18 for line in key_point_lines)
+    assert all(len(line) <= 16 for line in key_point_lines)
 
 
 def test_summary_lock_does_not_target_result_feedback_textarea():
@@ -212,12 +225,26 @@ def test_summary_lock_does_not_target_result_feedback_textarea():
     assert '[data-summary-review][data-locked="true"] textarea' not in styles
 
 
+def test_graphic_failure_unlocks_summary_review_and_preserves_stage_until_swap():
+    index = (Path(__file__).resolve().parents[1] / "web/templates/index.html").read_text()
+    job = (Path(__file__).resolve().parents[1] / "web/templates/partials/job.html").read_text()
+    graphic = (Path(__file__).resolve().parents[1] / "web/templates/partials/graphic.html").read_text()
+
+    assert 'data-workflow-status="{{ job.status }}"' in job
+    assert 'data-workflow-status="done"' in graphic
+    assert 'updatedStep.dataset.workflowStatus === "failed"' in index
+    assert "unlockSummaryReview(review);" in index
+    assert "stage.innerHTML" not in index
+    assert "data-graphic-workflow" in graphic
+
+
 def test_job_polling_and_swap_animation_are_calm():
     job = (Path(__file__).resolve().parents[1] / "web/templates/partials/job.html").read_text()
     styles = (Path(__file__).resolve().parents[1] / "web/static/styles.css").read_text()
 
     assert 'hx-trigger="every 1500ms"' in job
     assert 'every 600ms' not in job
+    assert 'job.kind == "summary"' in job
     assert "#graphic-stage > section" in styles
     assert "@keyframes fade-in" in styles
     assert "form.htmx-request button" in styles

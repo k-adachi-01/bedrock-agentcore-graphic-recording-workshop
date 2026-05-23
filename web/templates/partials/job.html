@@ -8,12 +8,18 @@
   id="{{ job.job_id }}"
   class="space-y-6"
   {% if job.kind == "graphic" %}data-workflow-step="3"{% endif %}
+  {% if job.kind == "graphic" %}data-workflow-status="{{ job.status }}"{% endif %}
   {% if job.status == "running" %}
     hx-get="/jobs/{{ job.job_id }}"
     hx-trigger="every 1500ms"
     hx-swap="outerHTML"
   {% endif %}
 >
+  {% if job.kind == "summary" %}
+    {% set active_step = 1 %}
+    {% include "partials/stepper.html" with context %}
+  {% endif %}
+
   <div>
     <p class="text-sm font-semibold text-blue-700">Agent 処理中</p>
     <h2 class="mt-1 text-2xl font-bold text-slate-950">{{ job.title }}</h2>

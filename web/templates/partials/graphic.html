@@ -2,7 +2,7 @@
 {% set stepper_oob = true %}
 {% include "partials/stepper.html" with context %}
 
-<section class="space-y-6" data-workflow-step="4">
+<section class="space-y-6" data-workflow-step="4" data-workflow-status="done">
   <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div class="flex flex-wrap items-center gap-3">
       <h2 class="mt-1 text-2xl font-bold text-slate-950">グラレコ結果</h2>
@@ -105,6 +105,7 @@
     hx-swap="outerHTML"
     hx-indicator="#regen-loading"
     hx-disabled-elt="find button[type='submit']"
+    data-graphic-workflow
   >
     <input type="hidden" name="session_id" value="{{ summary.session_id }}" />
     <label for="feedback" class="block text-sm font-semibold text-slate-700">フィードバック</label>

@@ -167,10 +167,6 @@
           document.getElementById("workspace").classList.remove("hidden");
         }
         if (event.target && event.target.matches("[data-graphic-workflow]")) {
-          const stage = document.getElementById("graphic-stage");
-          if (stage) {
-            stage.innerHTML = "";
-          }
           lockSummaryReview(event.target.closest("[data-summary-review]"));
           setWorkflowStep(3);
         }
@@ -185,13 +181,27 @@
       });
 
       document.body.addEventListener("htmx:afterSwap", function (event) {
-        if (event.detail.target && event.detail.target.id === "graphic-stage") {
-          lockSummaryReview(document.querySelector("[data-summary-review]"));
-          const updatedStep = event.detail.target.querySelector("[data-workflow-step]");
-          if (updatedStep) {
-            setWorkflowStep(updatedStep.dataset.workflowStep);
-          }
-          event.detail.target.scrollIntoView({ behavior: "smooth", block: "start" });
+        const target = event.detail.target;
+        const stage = document.getElementById("graphic-stage");
+        const updatedStep =
+          (stage && stage.querySelector("[data-workflow-step]")) ||
+          (target && target.matches && target.matches("[data-workflow-step]") && target) ||
+          (target && target.querySelector && target.querySelector("[data-workflow-step]"));
+        if (!updatedStep) {
+          return;
+        }
+
+        const review = document.querySelector("[data-summary-review]");
+        if (updatedStep.dataset.workflowStatus === "failed") {
+          unlockSummaryReview(review);
+          setWorkflowStep(2);
+        } else {
+          lockSummaryReview(review);
+          setWorkflowStep(updatedStep.dataset.workflowStep);
+        }
+
+        if (stage && stage.contains(updatedStep)) {
+          updatedStep.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       });
     </script>
