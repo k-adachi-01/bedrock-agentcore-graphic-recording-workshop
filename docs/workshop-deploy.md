@@ -22,7 +22,7 @@
 
 本編では、まず Section 0 (全体構成) を確認し、その後 Section 5–9 の bucket / IAM / Agent Runtime / Cloud Run deploy と smoke test に進みます。
 
-Cloud Shell の tab を閉じた、または idle で session が切れた場合は、Section 3 の `export ...` を再実行してから Section 5 以降に進んでください。
+Cloud Shell の tab を閉じた、または idle で session が切れた場合は、Section 3 の `export ...` と、Section 4 で追加した `PROJECT_NUMBER` / `CLOUD_RUN_SA` / `GCS_SIGNING_SERVICE_ACCOUNT` の export を再実行してから Section 5 以降に進んでください。
 
 ## 0. 全体構成
 
