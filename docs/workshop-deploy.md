@@ -13,14 +13,14 @@
 
 開場後に余裕がある人は、次の内容を進めておきましょう。これらステップを完了しておくことで、本編では Agent Runtime / Cloud Run の deploy と smoke test に集中できます。
 
-- Section 1. 事前準備
-- Section 2. Repository を clone
-- Section 3. 環境変数を設定
-- Section 4. API と基本 IAM を準備
+- [Section 1. 事前準備](#1-事前準備)
+- [Section 2. Repository を clone](#2-repository-を-clone)
+- [Section 3. 環境変数を設定](#3-環境変数を設定)
+- [Section 4. API と基本 IAM を準備](#4-api-と基本-iam-を準備)
 
 ## Phase 1. Workshop 本編の流れ
 
-本編では、まず Section 0 (全体構成) を確認し、その後 Section 5–9 の bucket / IAM / Agent Runtime / Cloud Run deploy と smoke test に進みます。所要時間はおよそ **25〜35 分** を目安にしてください (内訳: Section 7 が 10〜15 分、Section 8 が 5〜10 分、その他で 10 分前後)。
+本編では、まず [Section 0 (全体構成)](#0-全体構成) を確認し、その後 Section 5–9 の bucket / IAM / Agent Runtime / Cloud Run deploy と smoke test に進みます。所要時間はおよそ **25〜35 分** を目安にしてください (内訳: Section 7 が 10〜15 分、Section 8 が 5〜10 分、その他で 10 分前後)。
 
 Cloud Shell の tab を閉じた、または idle で session が切れた場合は、Section 3 の `export ...` と、Section 4 で追加した `PROJECT_NUMBER` / `CLOUD_RUN_SA` / `GCS_SIGNING_SERVICE_ACCOUNT` の export を再実行してから Section 5 以降に進んでください。
 
