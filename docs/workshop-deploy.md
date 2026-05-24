@@ -242,7 +242,8 @@ Service URL: https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app
 
 この URL を控えます。
 
-再 deploy する場合は、同じ shell session の `APP_SECRET_KEY` を使い続けてください。値を変えると既存の login cookie は無効になります。
+> [!IMPORTANT]
+> 再 deploy する際は、Phase 0 で生成した `APP_SECRET_KEY` の値をそのまま使い続けてください。値が変わると既存の login cookie が無効になり、再ログインが必要になります。Cloud Shell の tab を閉じた場合に備え、現在の値を `echo "${APP_SECRET_KEY}"` で控えておくと安全です。
 
 ## 9. ブラウザで smoke test
 
