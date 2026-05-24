@@ -339,6 +339,8 @@ gcloud storage ls -r "gs://${GCS_BUCKET}/${GCS_ARTIFACT_PREFIX}/**" | tail
 
 ## 12. よくあるエラー
 
+各 script (`bootstrap-gcp-project.sh` / `configure-runtime-iam.sh` / `deploy-agent-runtime.py` / `deploy-cloud-run.sh`) は基本的にべき等です。失敗した場合は、まずエラーメッセージを確認のうえ、同じコマンドを再実行してみてください。それでも解消しない場合は、次の代表的なエラーパターンと対処を参照します。
+
 ### Billing が無効
 
 症状:
