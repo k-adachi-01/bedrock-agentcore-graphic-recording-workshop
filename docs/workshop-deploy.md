@@ -174,12 +174,10 @@ gcloud storage buckets create "gs://${GCS_BUCKET}" --location="${REGION}"
 - `gcp-sa-aiplatform` と `gcp-sa-aiplatform-re` の Runtime 系 service agent に bucket 書き込み権限を付与
 - Runtime 系 service agent に Cloud Run default service account で signed URL を作るための `roles/iam.serviceAccountTokenCreator` を付与
 
-script の最後に表示される値を export します。
+script の最後に `Export these values before deploy:` として `CLOUD_RUN_SA` / `GCS_SIGNING_SERVICE_ACCOUNT` の 2 行が表示されますが、いずれも **Section 4 で export 済みの値と同じ**です。表示された値が次と一致していることを確認できれば、追加の export は不要です。
 
-```bash
-export CLOUD_RUN_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-export GCS_SIGNING_SERVICE_ACCOUNT="${CLOUD_RUN_SA}"
-```
+- `CLOUD_RUN_SA` = `${PROJECT_NUMBER}-compute@developer.gserviceaccount.com`
+- `GCS_SIGNING_SERVICE_ACCOUNT` = 同上 (`CLOUD_RUN_SA` と同じ値)
 
 ## 7. Agent Runtime を deploy
 
