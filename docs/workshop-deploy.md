@@ -4,6 +4,9 @@
 
 ローカル PC での実行は推奨しません。ワークショップ参加者は個人 Google アカウントで参加する想定のため、ローカル `gcloud` の会社アカウント、ADC quota project、Python version の混線を避けるためです。
 
+本ワークショップでは実際にアプリケーションをGoogle Cloud上にデプロイし稼働させるため、Google Cloud の料金が発生します。
+運営スタッフで確認したところ、**2026年5月24日の為替レートで大体150円程度の料金が発生**しましたので、参考にしてください。
+
 ## Phase 0. 開場〜開始前にここまで進める
 
 開場後に余裕がある人は、次の内容を進めておきましょう。これらステップを完了しておくことで、本編では Agent Runtime / Cloud Run の deploy と smoke test に集中できます。
@@ -297,7 +300,7 @@ python -m uvicorn web.main:app --host 0.0.0.0 --port 8080
 
 ## 11. ログ確認
 
-スタッフに相談する場合は、まず診断 script の出力を共有してください。
+運営スタッフに相談する場合は、まず診断 script の出力を共有してください。
 
 ```bash
 ./scripts/diagnose-deployment.sh
@@ -342,7 +345,7 @@ Billing account for project ... is not found
 UREQ_PROJECT_BILLING_NOT_FOUND
 ```
 
-対処: Console で billing account を project に紐づけます。
+対処: Console で billing account を project に紐づけてください。
 
 ### Cloud Run source deploy で 403 (`storage.objects.get` denied)
 
@@ -382,7 +385,7 @@ module 'google.genai.types' has no attribute ...
 Please provide a `staging_bucket`
 ```
 
-対処: `GCS_BUCKET` と `AGENT_RUNTIME_STAGING_BUCKET` を export してから `python scripts/deploy-agent-runtime.py` を実行します。
+対処: 環境変数の `GCS_BUCKET` と `AGENT_RUNTIME_STAGING_BUCKET` を export してから `python scripts/deploy-agent-runtime.py` を実行します。
 
 ### `GOOGLE_CLOUD_PROJECT` が reserved
 
