@@ -203,14 +203,15 @@ effective_identity=service-887643395015@gcp-sa-aiplatform-re.iam.gserviceaccount
 1 行目に表示された `projects/.../locations/.../reasoningEngines/...` をそのまま `AGENT_RUNTIME_RESOURCE_NAME` に設定します。下の `...` や数字は例です。`PROJECT_NUMBER` や `RESOURCE_ID` という文字列をそのまま使わないでください。
 
 ```bash
-export AGENT_RUNTIME_RESOURCE_NAME="PASTE_THE_FIRST_LINE_FROM_DEPLOY_OUTPUT"
+# 上の出力の 1 行目 (projects/.../reasoningEngines/...) を貼り付ける
+export AGENT_RUNTIME_RESOURCE_NAME="PASTE_HERE"
 ```
 
 2 行目に `effective_identity=...` が出力されている **場合のみ**、その identity を export して `configure-runtime-iam.sh` を再実行します。出力されていない場合は追加の IAM 設定は不要なので、そのまま Section 8 に進んでください。
 
 ```bash
 # effective_identity= の後ろのメールアドレスを貼り付ける
-export AGENT_RUNTIME_EFFECTIVE_IDENTITY="PASTE_THE_EMAIL_AFTER_EFFECTIVE_IDENTITY"
+export AGENT_RUNTIME_EFFECTIVE_IDENTITY="PASTE_HERE"
 ./scripts/configure-runtime-iam.sh
 ```
 
