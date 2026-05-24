@@ -6,95 +6,12 @@
 
 ## Phase 0. 開場〜開始前にここまで進める
 
-開場時は、早く来た人から次を進めます。ここまで終わっていると、本編では Agent Runtime / Cloud Run の deploy と smoke test に集中できます。
+開場後に余裕がある人は、次の内容を進めておきましょう。これらステップを完了しておくことで、本編では Agent Runtime / Cloud Run の deploy と smoke test に集中できます。
 
-まず Google Cloud Console で次を済ませます。
-
-1. 新規 project を作成する
-2. Billing account を project に紐づける
-3. Console 上部の project selector で対象 project を選ぶ
-4. Cloud Shell を開く
-
-Cloud Shell が開いたら、public repository を clone します。
-
-```bash
-git clone https://github.com/kazumasa416/gemini-enterprise-agent-runtime-workshop.git
-cd gemini-enterprise-agent-runtime-workshop
-
-export PROJECT_ID="YOUR_PROJECT_ID"
-export REGION="asia-northeast1"
-export AGENT_RUNTIME_LOCATION="us-central1"
-export GOOGLE_CLOUD_LOCATION="global"
-export SERVICE_NAME="graphic-recording-agent-demo"
-export APP_PASSWORD="CHANGE_ME_TO_YOUR_PASSWORD"
-export APP_SECRET_KEY="$(openssl rand -hex 32)"
-export GEMINI_TEXT_MODEL="gemini-3.5-flash"
-export GEMINI_IMAGE_MODEL="gemini-3-pro-image-preview"
-export ARTICLE_FETCH_MAX_BYTES="2000000"
-export GCS_BUCKET="${PROJECT_ID}-graphic-recording-artifacts"
-export AGENT_RUNTIME_STAGING_BUCKET="${GCS_BUCKET}"
-export GCS_ARTIFACT_PREFIX="artifacts"
-export GCS_SIGNED_URL_TTL_SECONDS="28800"
-
-gcloud config set project "${PROJECT_ID}"
-gcloud auth application-default login
-gcloud auth application-default set-quota-project "${PROJECT_ID}"
-
-./scripts/preflight-cloud-shell.sh
-
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -r requirements.txt -c constraints-workshop.txt
-
-./scripts/bootstrap-gcp-project.sh
-```
-
-Cloud Shell には通常 GitHub の SSH key が入っていないため、`git@github.com:...` ではなく HTTPS URL で clone してください。public repository なので GitHub 認証は不要です。
-
-`preflight-cloud-shell.sh` が失敗した場合は、表示された `[NG]` を直してから再実行してください。preflight は Python version と `venv` module も確認します。
-
-`gcloud auth application-default set-quota-project "${PROJECT_ID}"` の途中で次のように聞かれた場合は、`y` を入力して進めます。
-
-```text
-API [cloudresourcemanager.googleapis.com] not enabled on project [...]
-Would you like to enable and retry (this will take a few minutes)? (y/N)?
-```
-
-これは ADC の quota project を設定するために、Google Cloud Resource Manager API を有効化してよいか確認する prompt です。ワークショップ用 disposable project では有効化して問題ありません。
-
-Phase 0 で設定する主な環境変数:
-
-| 変数 | 意味 |
-| --- | --- |
-| `PROJECT_ID` | 自分が作成した Google Cloud project ID |
-| `REGION` | Cloud Run と artifact bucket を作る region |
-| `AGENT_RUNTIME_LOCATION` | Agent Runtime を deploy する location |
-| `GOOGLE_CLOUD_LOCATION` | Gemini model を呼び出す location。`gemini-3.5-flash` は `global` を使う |
-| `SERVICE_NAME` | Cloud Run service 名 |
-| `APP_PASSWORD` | デモアプリにログインするための簡易パスワード。Cloud Run は public URL になるため、自分用の値に変更する |
-| `APP_SECRET_KEY` | ログイン cookie 署名用の secret。同じ Cloud Run service を再 deploy する間は同じ値を使う |
-| `GEMINI_TEXT_MODEL` | 要約や構成案に使う Gemini text model |
-| `GEMINI_IMAGE_MODEL` | グラレコ画像生成に使う Gemini image model |
-| `ARTICLE_FETCH_MAX_BYTES` | 記事 URL 取得時の最大 response size |
-| `GCS_BUCKET` | Agent Runtime deploy の staging と画像 artifact 保存に使う bucket |
-| `AGENT_RUNTIME_STAGING_BUCKET` | Agent Runtime deploy package の一時配置先。ここでは `GCS_BUCKET` と同じ |
-| `GCS_ARTIFACT_PREFIX` | GCS 上で生成画像を置く object prefix |
-| `GCS_SIGNED_URL_TTL_SECONDS` | 画像表示用 signed URL の有効秒数 |
-
-Phase 0 で実行する主なコマンド:
-
-| コマンド | 意味 |
-| --- | --- |
-| `git clone https://github.com/...` | public repository を Cloud Shell に取得する |
-| `gcloud config set project "${PROJECT_ID}"` | `gcloud` CLI の操作対象 project を設定する |
-| `gcloud auth application-default login` | Python SDK / Google client library が使う Application Default Credentials を作成する |
-| `gcloud auth application-default set-quota-project "${PROJECT_ID}"` | ADC の quota / billing 対象 project を workshop project に合わせる |
-| `./scripts/preflight-cloud-shell.sh` | Python、`venv`、`gcloud` 認証、ADC、billing、API 状態を事前確認する |
-| `python3 -m venv .venv` | Python 仮想環境を作成する |
-| `source .venv/bin/activate` | 作成した仮想環境を有効化する |
-| `python -m pip install -r requirements.txt -c constraints-workshop.txt` | workshop 用に固定した依存バージョンで package をインストールする |
-| `./scripts/bootstrap-gcp-project.sh` | 必要 API を有効化し、基本 IAM を設定する |
+- Phase 1. - 1.事前準備
+- Phase 1. - 2.Repositoryをclone
+- Phase 1. - 3.環境変数を設定
+- Phase 1. - 4.APIと基本IAMを準備
 
 ## Phase 1. Workshop 本編の流れ
 
@@ -191,12 +108,22 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project "${PROJECT_ID}"
 gcloud auth application-default print-access-token >/dev/null && echo "ADC ok"
 gcloud beta billing projects describe "${PROJECT_ID}"
-./scripts/preflight-cloud-shell.sh
 ```
 
 `billingEnabled: true` になっていない場合は、Console で billing を紐づけてから進んでください。
 
+次に、ここまで実施した内容が正しく実行されているか、確認用のscript を実行しましょう。
+
+```
+./scripts/preflight-cloud-shell.sh
+```
+
+**`Preflight passed.`と表示されれば成功**です！
+`preflight-cloud-shell.sh` が失敗した場合は、表示された `[NG]` を直してから再実行してください。preflight は Python version と `venv` module も確認します。
+
 ## 4. API と基本 IAM を準備
+
+次の script を実行し、API の有効化と必要なIAMを設定します。
 
 ```bash
 ./scripts/bootstrap-gcp-project.sh
@@ -205,6 +132,8 @@ gcloud beta billing projects describe "${PROJECT_ID}"
 成功すると project number と Cloud Run runtime service account が表示されます。
 
 API 有効化や初回の Vertex AI / Gemini 利用時に Console 上で追加確認が表示された場合は、その場で承認してから同じコマンドを再実行してください。
+
+以降のワークショップで必要となる環境変数を設定しておきます。
 
 ```bash
 export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
@@ -414,6 +343,25 @@ UREQ_PROJECT_BILLING_NOT_FOUND
 ```
 
 対処: Console で billing account を project に紐づけます。
+
+### Cloud Run source deploy で 403 (`storage.objects.get` denied)
+
+症状:
+
+```text
+ERROR: (gcloud.run.deploy) INVALID_ARGUMENT: Invalid build request.
+could not resolve source: googleapi: Error 403:
+<PROJECT_NUMBER>-compute@developer.gserviceaccount.com does not have storage.objects.get access
+to the Google Cloud Storage object.
+```
+
+対処: 2024 年 4 月以降に作られた project では、`gcloud run deploy --source .` の Cloud Build worker が Compute Engine default SA に切り替わっており、source bucket / Artifact Registry / Cloud Logging への権限が初期状態では付いていません。`./scripts/bootstrap-gcp-project.sh` を最新版で再実行すれば自動で付与されます。既に deploy 中で詰まった既存 project は、次のコマンドだけでも復旧できます。
+
+```bash
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role "roles/cloudbuild.builds.builder"
+```
 
 ### Python 3.9 で deploy している
 
