@@ -65,7 +65,8 @@ Cloud Shell の Python が 3.10 以上であることを確認します。
 python3 --version
 ```
 
-3.10 未満の場合、この手順では進めないでください。Agent Runtime deploy で使う Agent Engine SDK / MCP が Python 3.10+ を要求します。
+> [!IMPORTANT]
+> 3.10 未満の場合、この手順では進めないでください。Agent Runtime deploy で使う Agent Engine SDK / MCP が Python 3.10+ を要求します。
 
 Cloud Shell では通常 `python3 -m venv` が使えます。Phase 0 の `preflight-cloud-shell.sh` は venv module の有無も確認します。
 
@@ -115,7 +116,8 @@ gcloud auth application-default print-access-token >/dev/null && echo "ADC ok"
 gcloud beta billing projects describe "${PROJECT_ID}"
 ```
 
-`billingEnabled: true` になっていない場合は、Console で billing を紐づけてから進んでください。
+> [!IMPORTANT]
+> `billingEnabled: true` になっていない場合は、Console で billing を紐づけてから進んでください。
 
 次に、ここまで実施した内容が正しく実行されているか、確認用のscript を実行しましょう。
 
@@ -202,7 +204,10 @@ projects/887643395015/locations/us-central1/reasoningEngines/1234567890123456789
 effective_identity=service-887643395015@gcp-sa-aiplatform-re.iam.gserviceaccount.com
 ```
 
-1 行目に表示された `projects/.../locations/.../reasoningEngines/...` をそのまま `AGENT_RUNTIME_RESOURCE_NAME` に設定します。下の `...` や数字は例です。`PROJECT_NUMBER` や `RESOURCE_ID` という文字列をそのまま使わないでください。
+1 行目に表示された `projects/.../locations/.../reasoningEngines/...` をそのまま `AGENT_RUNTIME_RESOURCE_NAME` に設定します。
+
+> [!WARNING]
+> 下の `...` や数字は例です。`PROJECT_NUMBER` や `RESOURCE_ID` という文字列をそのままコピーしないでください。実際に deploy 出力で表示された 1 行目をそのまま貼り付けます。
 
 ```bash
 # 上の出力の 1 行目 (projects/.../reasoningEngines/...) を貼り付ける
@@ -217,11 +222,10 @@ export AGENT_RUNTIME_EFFECTIVE_IDENTITY="PASTE_HERE"
 ./scripts/configure-runtime-iam.sh
 ```
 
-注意:
-
-- Agent Runtime の deployment env では `GOOGLE_CLOUD_PROJECT` は予約名のため渡しません
-- Gemini model location は `GOOGLE_CLOUD_LOCATION=global` で固定します
-- `gemini-3.5-flash` が 404 の場合は Runtime logs を確認し、model ID または利用可能 region をスタッフに確認してください
+> [!NOTE]
+> - Agent Runtime の deployment env では `GOOGLE_CLOUD_PROJECT` は予約名のため渡しません
+> - Gemini model location は `GOOGLE_CLOUD_LOCATION=global` で固定します
+> - `gemini-3.5-flash` が 404 の場合は Runtime logs を確認し、model ID または利用可能 region をスタッフに確認してください
 
 ## 8. Cloud Run を deploy
 
@@ -445,7 +449,8 @@ Publisher Model ... locations/us-central1 ... gemini-3.5-flash was not found
 - Cloud Storage
 - Cloud Logging
 
-短時間の検証でも画像生成と Agent Runtime は課金対象になり得ます。ワークショップ後は必ず後片付けしてください。
+> [!WARNING]
+> 短時間の検証でも画像生成と Agent Runtime は課金対象になり得ます。ワークショップ後は必ず後片付け (Section 14) を実施してください。
 
 ## 14. 後片付け
 
@@ -469,13 +474,19 @@ Publisher Model ... locations/us-central1 ... gemini-3.5-flash was not found
 
 この cleanup script は Google Cloud project 自体は削除しません。
 
-Disposable project の場合は、project ごと削除するのが最も確実です。ただし、これは **ワークショップ専用に作った disposable project 限定** です。個人利用中の project や会社 project では実行しないでください。削除前に Console の project selector と `PROJECT_ID` を必ず確認してください。
+Disposable project の場合は、project ごと削除するのが最も確実です。
+
+> [!CAUTION]
+> これは **ワークショップ専用に作った disposable project 限定** の手順です。個人利用中の project や会社 project では絶対に実行しないでください。削除前に Console の project selector と `PROJECT_ID` を必ず確認してください。
 
 ```bash
 gcloud projects describe "${PROJECT_ID}"
 ```
 
-問題なければ project を削除します。削除すると project 内のリソースは復元できません。
+問題なければ project を削除します。
+
+> [!CAUTION]
+> 削除すると project 内のリソースは復元できません。実行前に `PROJECT_ID` がワークショップ用 disposable project のものであることを再確認してください。
 
 ```bash
 gcloud projects delete "${PROJECT_ID}"
