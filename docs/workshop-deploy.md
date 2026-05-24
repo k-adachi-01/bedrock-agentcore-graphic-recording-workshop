@@ -259,6 +259,13 @@ https://SERVICE_NAME-PROJECT_NUMBER.REGION.run.app
 CHANGE_ME_TO_YOUR_PASSWORD
 ```
 
+最初に試す記事 URL は次のどちらかを使ってください。サイト構造や bot 対策により本文抽出に失敗する URL があるため、まずは動作確認済みのもので smoke test を完了させてから自由な URL を試すことをおすすめします。
+
+```text
+https://zenn.dev/ubie_dev/articles/modern-web-guidance
+https://developer.chrome.com/docs/modern-web-guidance/get-started?hl=en
+```
+
 次を確認します。
 
 1. ログインできる
@@ -273,13 +280,6 @@ CHANGE_ME_TO_YOUR_PASSWORD
 10. フィードバックを入力して再生成できる
 
 画像生成は 1〜3 分かかることがあります。止まって見える場合でも、経過秒数が更新されていれば Cloud Run の polling は動いています。通常より長い場合は画面に注意メッセージが表示されます。
-
-Smoke test では、参加者が自由に URL を選ぶ前に次のどちらかで確認してください。サイト構造や bot 対策によって本文抽出に失敗する URL があるためです。
-
-```text
-https://zenn.dev/ubie_dev/articles/modern-web-guidance
-https://developer.chrome.com/docs/modern-web-guidance/get-started?hl=en
-```
 
 ## 10. 困った場合: Cloud Shell mock mode
 
