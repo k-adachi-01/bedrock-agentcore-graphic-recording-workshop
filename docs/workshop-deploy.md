@@ -1,11 +1,11 @@
 # Workshop Deployment Guide
 
-この手順は、参加者が **GitHub public repository を Google Cloud Shell で clone** し、自分の新規 Google Cloud project にデモをデプロイして、Cloud Run URL で動作確認するところまでを対象にします。
+この手順は、参加者が **GitHub public repository を Google Cloud Shell で clone** し、自分の新規 Google Cloud project にデモを deploy して、Cloud Run URL で動作確認するところまでを対象にします。
 
 ローカル PC での実行は推奨しません。ワークショップ参加者は個人 Google アカウントで参加する想定のため、ローカル `gcloud` の会社アカウント、ADC quota project、Python version の混線を避けるためです。
 
 > [!IMPORTANT]
-> 本ワークショップでは実際に Google Cloud 上にアプリケーションをデプロイし稼働させるため、Google Cloud の料金が発生します。
+> 本ワークショップでは実際に Google Cloud 上にアプリケーションを deploy し稼働させるため、Google Cloud の料金が発生します。
 >
 > 運営スタッフの実測では目安 **150 円前後** (2026-05-24 時点、為替・実行回数で変動)。
 
@@ -128,7 +128,7 @@ gcloud beta billing projects describe "${PROJECT_ID}"
 
 ## 4. API と基本 IAM を準備
 
-次の script を実行し、API の有効化と必要なIAMを設定します。
+次の script を実行し、API の有効化と必要な IAM を設定します。
 
 ```bash
 ./scripts/bootstrap-gcp-project.sh
