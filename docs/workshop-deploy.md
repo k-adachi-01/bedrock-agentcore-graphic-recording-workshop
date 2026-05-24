@@ -206,9 +206,10 @@ effective_identity=service-887643395015@gcp-sa-aiplatform-re.iam.gserviceaccount
 export AGENT_RUNTIME_RESOURCE_NAME="PASTE_THE_FIRST_LINE_FROM_DEPLOY_OUTPUT"
 ```
 
-`effective_identity=...` が出た場合は、その identity も IAM 設定に含めます。
+2 行目に `effective_identity=...` が出力されている **場合のみ**、その identity を export して `configure-runtime-iam.sh` を再実行します。出力されていない場合は追加の IAM 設定は不要なので、そのまま Section 8 に進んでください。
 
 ```bash
+# effective_identity= の後ろのメールアドレスを貼り付ける
 export AGENT_RUNTIME_EFFECTIVE_IDENTITY="PASTE_THE_EMAIL_AFTER_EFFECTIVE_IDENTITY"
 ./scripts/configure-runtime-iam.sh
 ```
