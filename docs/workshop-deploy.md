@@ -13,14 +13,14 @@
 
 開場後に余裕がある人は、次の内容を進めておきましょう。これらステップを完了しておくことで、本編では Agent Runtime / Cloud Run の deploy と smoke test に集中できます。
 
-- Phase 1. - 1.事前準備
-- Phase 1. - 2.Repositoryをclone
-- Phase 1. - 3.環境変数を設定
-- Phase 1. - 4.APIと基本IAMを準備
+- Section 1. 事前準備
+- Section 2. Repository を clone
+- Section 3. 環境変数を設定
+- Section 4. API と基本 IAM を準備
 
 ## Phase 1. Workshop 本編の流れ
 
-本編では、まず全体構成を確認し、その後は Section 5 以降の bucket / IAM / Agent Runtime / Cloud Run deploy に進みます。
+本編では、まず Section 0 (全体構成) を確認し、その後 Section 5–9 の bucket / IAM / Agent Runtime / Cloud Run deploy と smoke test に進みます。
 
 Cloud Shell の tab を閉じた、または idle で session が切れた場合は、Section 3 の `export ...` を再実行してから Section 5 以降に進んでください。
 
