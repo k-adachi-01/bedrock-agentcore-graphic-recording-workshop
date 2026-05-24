@@ -20,7 +20,7 @@
 
 ## Phase 1. Workshop 本編の流れ
 
-本編では、まず Section 0 (全体構成) を確認し、その後 Section 5–9 の bucket / IAM / Agent Runtime / Cloud Run deploy と smoke test に進みます。
+本編では、まず Section 0 (全体構成) を確認し、その後 Section 5–9 の bucket / IAM / Agent Runtime / Cloud Run deploy と smoke test に進みます。所要時間はおよそ **25〜35 分** を目安にしてください (内訳: Section 7 が 10〜15 分、Section 8 が 5〜10 分、その他で 10 分前後)。
 
 Cloud Shell の tab を閉じた、または idle で session が切れた場合は、Section 3 の `export ...` と、Section 4 で追加した `PROJECT_NUMBER` / `CLOUD_RUN_SA` / `GCS_SIGNING_SERVICE_ACCOUNT` の export を再実行してから Section 5 以降に進んでください。
 
@@ -184,6 +184,8 @@ script の最後に `Export these values before deploy:` として `CLOUD_RUN_SA
 このコマンドは 10〜15 分かかることがあります。途中で出力が止まって見えても、Cloud Build / Agent Runtime の準備が進んでいる場合があります。エラーが出るまでは待ってください。
 Agent Runtime の依存関係は、デフォルトで `constraints-workshop.txt` の固定版を使って deploy されます。
 
+ここで詰まった場合は、[Section 10 (mock mode)](#10-困った場合-cloud-shell-mock-mode) に切り替えると UI 動作だけは確認できます。
+
 ```bash
 export AGENT_DISPLAY_NAME="graphic-recording-agent"
 export AGENT_RUNTIME_STAGING_BUCKET="${GCS_BUCKET}"
@@ -224,6 +226,8 @@ export AGENT_RUNTIME_EFFECTIVE_IDENTITY="PASTE_HERE"
 ## 8. Cloud Run を deploy
 
 このコマンドは 5〜10 分かかることがあります。source upload、container build、revision 作成、traffic 切り替えが順番に実行されます。
+
+ここで詰まった場合も、[Section 10 (mock mode)](#10-困った場合-cloud-shell-mock-mode) で UI を確認しながら進められます。
 
 ```bash
 export MOCK_MODE="false"
