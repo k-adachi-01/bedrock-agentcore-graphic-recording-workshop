@@ -491,3 +491,5 @@ gcloud projects describe "${PROJECT_ID}"
 ```bash
 gcloud projects delete "${PROJECT_ID}"
 ```
+
+ワークショップお疲れ様でした！
