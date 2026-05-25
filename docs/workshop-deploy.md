@@ -184,7 +184,7 @@ script の最後に `Export these values before deploy:` として `CLOUD_RUN_SA
 ## 7. Agent Runtime を deploy
 
 このコマンドは 10〜15 分かかることがあります。途中で出力が止まって見えても、Cloud Build / Agent Runtime の準備が進んでいる場合があります。エラーが出るまでは待ってください。
-Agent Runtime の依存関係は、デフォルトで `constraints-workshop.txt` の固定版を使って deploy されます。
+Agent Runtime の依存関係は、デフォルトで `constraints-workshop.txt` の固定版を使って deploy されます。deploy script は Agent Runtime に渡す前にコメント行と空行を除去するため、参加者側で別の requirements file を作る必要はありません。
 
 ここで詰まった場合は、[Section 10 (mock mode)](#10-困った場合-cloud-shell-mock-mode) に切り替えると UI 動作だけは確認できます。
 
