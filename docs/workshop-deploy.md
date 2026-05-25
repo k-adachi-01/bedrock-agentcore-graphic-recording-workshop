@@ -105,11 +105,24 @@ export GCS_ARTIFACT_PREFIX="artifacts"
 export GCS_SIGNED_URL_TTL_SECONDS="28800"
 ```
 
-Project と認証状態を確認します。
+Project と `gcloud` CLI の認証状態を確認します。
 
 ```bash
 gcloud config set project "${PROJECT_ID}"
 gcloud auth list
+gcloud config get-value account
+```
+
+`gcloud config get-value account` が空、または意図した Google account ではない場合は、次を実行してから先に進みます。
+
+```bash
+gcloud auth login
+gcloud config set account "YOUR_EMAIL"
+```
+
+続いて、Python SDK / Google client library が使う Application Default Credentials (ADC) を設定します。
+
+```bash
 gcloud auth application-default login
 gcloud auth application-default set-quota-project "${PROJECT_ID}"
 gcloud auth application-default print-access-token >/dev/null && echo "ADC ok"
