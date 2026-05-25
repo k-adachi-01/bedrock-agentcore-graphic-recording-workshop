@@ -253,21 +253,47 @@ async def poll_job(request: Request, job_id: str) -> HTMLResponse:
         raise HTTPException(status_code=404, detail="Job not found")
 
     if job.status == "done" and job.kind == "summary" and job.summary:
-        return templates.TemplateResponse(
+        return _retarget_job_response(
+            templates.TemplateResponse(
+                request,
+                "partials/summary.html",
+                {"summary": job.summary},
+            ),
+            job.job_id,
             request,
-            "partials/summary.html",
-            {"summary": job.summary},
         )
 
     if job.status == "done" and job.kind == "graphic" and job.summary and job.graphic:
+        return _retarget_job_response(
+            templates.TemplateResponse(
+                request,
+                "partials/graphic.html",
+                {
+                    "summary": job.summary,
+                    "graphic": job.graphic,
+                    "feedback": job.feedback,
+                },
+            ),
+            job.job_id,
+            request,
+        )
+
+    if job.status == "failed":
+        return _retarget_job_response(
+            templates.TemplateResponse(
+                request,
+                "partials/job.html",
+                {"job": job},
+            ),
+            job.job_id,
+            request,
+        )
+
+    if request.headers.get("HX-Target") == f"{job.job_id}-content":
         return templates.TemplateResponse(
             request,
-            "partials/graphic.html",
-            {
-                "summary": job.summary,
-                "graphic": job.graphic,
-                "feedback": job.feedback,
-            },
+            "partials/job_content.html",
+            {"job": job},
         )
 
     return templates.TemplateResponse(
@@ -289,6 +315,13 @@ def _create_job(kind: JobKind, title: str, feedback: str = "") -> AgentJob:
     job = AgentJob(job_id=job_id, kind=kind, title=title, feedback=feedback)
     jobs[job_id] = job
     return job
+
+
+def _retarget_job_response(response: HTMLResponse, job_id: str, request: Request) -> HTMLResponse:
+    if request.headers.get("HX-Request") == "true":
+        response.headers["HX-Retarget"] = f"#{job_id}"
+        response.headers["HX-Reswap"] = "outerHTML"
+    return response
 
 
 def _schedule_background_task(coro) -> None:
