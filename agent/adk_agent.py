@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Optional
 
 from . import tools
-from . import runtime_workflows
+from .runtime_contract import RuntimeWorkflowResponse
+
+try:
+    from google.adk.agents import BaseAgent
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.events import Event
+    from google.genai import types
+
+    _ADK_IMPORT_ERROR: Optional[ImportError] = None
+except ImportError as exc:
+    BaseAgent = object
+    InvocationContext = Any
+    Event = None
+    types = None
+    _ADK_IMPORT_ERROR = exc
 
 
 GRAPHIC_RECORDING_AGENT_INSTRUCTION = """
@@ -34,17 +49,31 @@ which action/tool phase the application will run next and why:
 Return one short Japanese sentence. Do not use markdown.
 """
 
-RUNTIME_WORKFLOW_INSTRUCTION = """
-You are the Agent Runtime workflow boundary for a workshop web app.
 
-The user message is JSON with one operation:
-- summarize_url: call runtime_summarize_url with the URL.
-- generate_graphic: call runtime_generate_graphic with the summary payload.
-- regenerate_graphic: call runtime_regenerate_graphic with the summary payload and feedback.
+class RuntimeWorkflowAgent(BaseAgent):
+    """ADK custom agent that dispatches runtime workflow JSON deterministically."""
 
-Call exactly one matching tool. Do not invent fields. After the tool returns,
-return the tool response JSON only.
-"""
+    async def _run_async_impl(self, ctx: InvocationContext):
+        from . import runtime_workflows
+
+        payload: dict[str, Any] = {}
+        try:
+            payload = _runtime_payload_from_context(ctx)
+            response = await runtime_workflows.dispatch_runtime_operation(payload)
+        except Exception as exc:
+            response = RuntimeWorkflowResponse(
+                operation=_runtime_operation_from_payload(payload),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        yield Event(
+            invocation_id=ctx.invocation_id,
+            author=self.name,
+            branch=ctx.branch,
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text=response.model_dump_json())],
+            ),
+        )
 
 
 def build_graphic_recording_agent(model: Optional[str] = None) -> Any:
@@ -98,25 +127,45 @@ def build_narrator_agent(model: Optional[str] = None) -> Any:
 
 
 def build_runtime_workflow_agent(model: Optional[str] = None) -> Any:
-    """Build the ADK agent deployed to Agent Runtime for the web backend."""
-    try:
-        from google.adk.agents import LlmAgent
-    except ImportError as exc:
+    """Build the deterministic ADK agent deployed to Agent Runtime.
+
+    The `model` argument is accepted for compatibility with earlier deploy
+    scripts, but this runtime boundary does not call an LLM.
+    """
+    if _ADK_IMPORT_ERROR:
         raise RuntimeError(
             "google-adk is not installed. Install google-adk before deploying Agent Runtime."
-        ) from exc
+        ) from _ADK_IMPORT_ERROR
 
-    return LlmAgent(
+    return RuntimeWorkflowAgent(
         name="graphic_recording_runtime_workflow",
-        model=model or os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash"),
         description="Runs the graphic recording workflow and returns the JSON contract.",
-        instruction=RUNTIME_WORKFLOW_INSTRUCTION,
-        tools=[
-            runtime_workflows.runtime_summarize_url,
-            runtime_workflows.runtime_generate_graphic,
-            runtime_workflows.runtime_regenerate_graphic,
-        ],
     )
+
+
+def _runtime_payload_from_context(ctx: Any) -> dict[str, Any]:
+    user_content = getattr(ctx, "user_content", None)
+    parts = getattr(user_content, "parts", None) or []
+    texts: list[str] = []
+    for part in parts:
+        if isinstance(part, dict):
+            text = part.get("text")
+        else:
+            text = getattr(part, "text", None)
+        if text:
+            texts.append(text)
+    message = "\n".join(texts).strip()
+    payload = json.loads(message)
+    if not isinstance(payload, dict):
+        raise ValueError("Runtime user message must be a JSON object")
+    return payload
+
+
+def _runtime_operation_from_payload(payload: dict[str, Any]) -> str:
+    operation = payload.get("operation")
+    if operation in {"summarize_url", "generate_graphic", "regenerate_graphic"}:
+        return str(operation)
+    return "unknown"
 
 
 async def run_narration_turn(prompt: str, session_id: str, user_id: str = "demo-user") -> str:

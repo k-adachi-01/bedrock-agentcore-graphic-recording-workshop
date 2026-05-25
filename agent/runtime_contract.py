@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from agent.models import GraphicResult, ProgressStep, SummaryResult
 
 
-RuntimeOperation = Literal["summarize_url", "generate_graphic", "regenerate_graphic"]
+RuntimeOperation = Literal["unknown", "summarize_url", "generate_graphic", "regenerate_graphic"]
 
 
 class RuntimeProgressStep(BaseModel):

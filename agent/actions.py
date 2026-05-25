@@ -111,7 +111,12 @@ async def _build_graphic(
     await _mock_step_delay()
 
     started = time.perf_counter()
-    generated_image = await tools.generate_image_artifact(visual_plan, style=style_decision.style)
+    generated_image = await tools.generate_image_artifact(
+        visual_plan,
+        style=style_decision.style,
+        summary_lines=summary.summary_lines,
+        key_points=summary.key_points,
+    )
     _log_duration("generate_graphic", "generate_image", started, session_id=summary.session_id)
     artifact_url = ""
     artifact_mime_type = "image/svg+xml"

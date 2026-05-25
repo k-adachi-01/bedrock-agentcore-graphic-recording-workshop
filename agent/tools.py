@@ -32,10 +32,10 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _GENAI_CLIENT = None
 
 _DEFAULT_PLAN_ITEMS = [
-    "左上に URL 入力から Agent 起動までの導入を配置",
-    "中央に 3 行要約を大きく配置",
-    "右側に重要ポイントを 4 つのアイコン付きノードで配置",
-    "下部に ADK / Agent Runtime / Cloud Run / Cloud Storage の流れを描く",
+    "上部に記事タイトルを短く配置",
+    "左側に 3 行要約を大きく配置",
+    "右側に重要ポイントをアイコン付きノードで配置",
+    "要約と重要ポイントの関係だけを矢印や線で整理する",
 ]
 
 
@@ -147,7 +147,7 @@ async def summarize_article(title: str, article_text: str) -> dict[str, list[str
 制約:
 - summary_lines は必ず3行
 - key_points は4から6個
-- 勉強会デモで説明しやすいように、具体的で短い表現にする
+- 記事に書かれている内容だけを使い、具体的で短い表現にする
 - 出力は指定 schema に厳密に従う
 
 タイトル:
@@ -275,7 +275,8 @@ async def create_visual_plan_for_style(
 - plan_items は4から6個
 - 画面上の配置、強調する概念、視線誘導が分かる指示にする
 - 選択スタイルに合う色調、密度、アイコン表現にする
-- ADK / Agent Runtime / Gemini / Cloud Run / Cloud Storage の文脈が自然に伝わるようにする
+- 画像内に表示する文字は 3行要約と重要ポイントの内容だけに限定する
+- 記事内容ではない、アプリの処理手順・生成基盤・説明用の文脈を入れない
 - 出力は指定 schema に厳密に従う
 """
     try:
@@ -289,27 +290,44 @@ async def create_visual_plan_for_style(
         return plan
 
 
-async def generate_image(visual_plan: list[str]) -> str:
+async def generate_image(
+    visual_plan: list[str],
+    summary_lines: Optional[list[str]] = None,
+    key_points: Optional[list[str]] = None,
+) -> str:
     """Generate a graphic recording image and return SVG-compatible markup.
 
     Args:
         visual_plan: Composition instructions for the image model.
+        summary_lines: Article summary lines allowed as rendered text.
+        key_points: Article key points allowed as rendered text.
 
     Returns:
         SVG markup wrapping the generated image, or an empty string on fallback.
     """
-    image = await generate_image_artifact(visual_plan)
+    image = await generate_image_artifact(
+        visual_plan,
+        summary_lines=summary_lines,
+        key_points=key_points,
+    )
     if not image.data:
         return ""
     return _render_image_svg(image.data, image.mime_type)
 
 
-async def generate_image_artifact(visual_plan: list[str], style: str = "business") -> GeneratedImage:
+async def generate_image_artifact(
+    visual_plan: list[str],
+    style: str = "business",
+    summary_lines: Optional[list[str]] = None,
+    key_points: Optional[list[str]] = None,
+) -> GeneratedImage:
     """Generate a graphic recording image with Gemini image model for artifact storage.
 
     Args:
         visual_plan: Composition instructions for the image model.
         style: Selected visual style used to tune the image prompt.
+        summary_lines: Article summary lines allowed as rendered text.
+        key_points: Article key points allowed as rendered text.
 
     Returns:
         Generated image bytes and metadata, or an empty payload that signals SVG fallback.
@@ -321,13 +339,22 @@ async def generate_image_artifact(visual_plan: list[str], style: str = "business
         logger.warning("Gemini image generation skipped: %s", message)
         return GeneratedImage(b"", "", f"fallback-svg:{message}")
 
+    allowed_summary = summary_lines or []
+    allowed_points = key_points or []
     prompt = f"""日本語のグラフィックレコーディング画像を生成してください。
 
 目的:
-- 勉強会デモで、URL取得から要約、構成案、画像生成まで Agent が進める流れを見せる
-- Gemini Enterprise Agent Platform / ADK / Agent Runtime / Cloud Run / Cloud Storage の関係が一目で分かる
+- 記事の 3 行要約と重要ポイントだけを、1枚の読みやすいグラフィックレコーディングとして表現する
+- アプリケーションや生成システムの説明ではなく、記事内容そのものを図解する
 
-構成案:
+画像内に表示してよい文字:
+3行要約:
+{chr(10).join(f"- {line}" for line in allowed_summary) or "- 3行要約"}
+
+重要ポイント:
+{chr(10).join(f"- {point}" for point in allowed_points) or "- 重要ポイント"}
+
+構成案（配置の参考のみ。構成案の文言は画像に書かない）:
 {chr(10).join(f"- {item}" for item in visual_plan)}
 
 選択スタイル:
@@ -340,7 +367,8 @@ async def generate_image_artifact(visual_plan: list[str], style: str = "business
 - 16:9 の横長
 - 白背景、読みやすい太線、アイコン、矢印、付箋風メモ
 - 日本語テキストは短く、大きく、読みやすく
-- 企業向け勉強会の資料として使える完成度にする
+- 記事本文にないアプリの処理手順、生成基盤、説明用の文脈、構成案ラベルなどの語句を画像内に追加しない
+- 見出しは「3行要約」「重要ポイント」など記事内容を示すものだけにする
 - 選択スタイルと矛盾する色や装飾を混ぜない
 """
     try:
@@ -375,7 +403,7 @@ async def render_svg(
         title: Article title.
         summary_lines: Three summary lines to render.
         key_points: Important points to render.
-        visual_plan: Composition instructions selected by the agent pipeline.
+        visual_plan: Kept for workflow API symmetry; not rendered in the fallback SVG.
         feedback: Optional user feedback from regeneration.
         style: Selected visual style.
 
@@ -391,21 +419,7 @@ async def render_svg(
     )
     point_items = "".join(
         _point_node(i, point, accent)
-        for i, point in enumerate(key_points[:4])
-    )
-    plan_text = " / ".join(visual_plan[:3])
-    plan_tspans = _svg_tspans(
-        f"Style: {style} / {plan_text}",
-        x=78,
-        first_y=620,
-        max_chars=62,
-        max_lines=2,
-        line_gap=18,
-    )
-    feedback_note = (
-        f'<text x="78" y="548" class="note">Feedback: {html.escape(feedback[:90])}</text>'
-        if feedback.strip()
-        else '<text x="78" y="548" class="note">Fallback SVG generated in MOCK_MODE</text>'
+        for i, point in enumerate(key_points[:6])
     )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="680" viewBox="0 0 1100 680" role="img" aria-label="Graphic recording">
@@ -416,7 +430,6 @@ async def render_svg(
     .label {{ font: 700 16px sans-serif; fill: #475569; }}
     .summary {{ font: 600 18px sans-serif; fill: #0f172a; }}
     .small {{ font: 500 14px sans-serif; fill: #334155; }}
-    .note {{ font: 500 16px sans-serif; fill: #0f766e; }}
     .arrow {{ stroke: #64748b; stroke-width: 3; fill: none; marker-end: url(#arrow); }}
   </style>
   <defs>
@@ -428,33 +441,13 @@ async def render_svg(
   <rect x="40" y="36" width="1020" height="92" rx="8" fill="{accent}" />
   {title_node}
 
-  <rect class="panel" x="54" y="150" width="640" height="206" rx="8" />
-  <text x="78" y="180" class="label">3 Line Summary</text>
+  <rect class="panel" x="54" y="150" width="640" height="410" rx="8" />
+  <text x="78" y="180" class="label">3行要約</text>
   {summary_items}
 
-  <rect class="panel" x="732" y="150" width="314" height="380" rx="8" />
-  <text x="758" y="184" class="label">Key Points</text>
+  <rect class="panel" x="732" y="150" width="314" height="410" rx="8" />
+  <text x="758" y="184" class="label">重要ポイント</text>
   {point_items}
-
-  <rect class="panel" x="54" y="380" width="640" height="150" rx="8" />
-  <text x="78" y="398" class="label">Agent Flow</text>
-  <circle cx="130" cy="456" r="30" fill="{palette["soft"]}" stroke="{accent}" stroke-width="3" />
-  <text x="108" y="461" class="small">URL</text>
-  <path class="arrow" d="M162 456 H252" />
-  <circle cx="302" cy="456" r="38" fill="#ecfeff" stroke="#0891b2" stroke-width="3" />
-  <text x="278" y="461" class="small">ADK</text>
-  <path class="arrow" d="M342 456 H452" />
-  <circle cx="508" cy="456" r="44" fill="#fef3c7" stroke="#d97706" stroke-width="3" />
-  <text x="468" y="452" class="small">Agent</text>
-  <text x="466" y="471" class="small">Runtime</text>
-  <path class="arrow" d="M554 456 H608" />
-  <rect x="618" y="423" width="48" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="3" />
-  <text x="628" y="461" class="small">SVG</text>
-
-  <rect x="54" y="562" width="992" height="88" rx="8" fill="#e2e8f0" />
-  <text x="78" y="592" class="label">Visual Plan</text>
-  <text class="small">{plan_tspans}</text>
-  {feedback_note}
 </svg>"""
 
 
@@ -896,23 +889,23 @@ def _heuristic_style_decision(
         return StyleDecision(style="pop", reason=f"{reason_prefix}: 一般読者向けの親しみやすい表現が合うため。")
     if any(word in text for word in ["minimal", "ミニマル", "シンプル", "余白", "簡潔"]):
         return StyleDecision(style="minimal", reason=f"{reason_prefix}: 情報を絞った静かな見せ方が合うため。")
-    return StyleDecision(style="business", reason=f"{reason_prefix}: 企業向けデモとして構造化された図解が合うため。")
+    return StyleDecision(style="business", reason=f"{reason_prefix}: 記事内容を構造化して見せる図解が合うため。")
 
 
 def _default_plan_items_for_style(style: str) -> list[str]:
     if style == "pop":
         return [
-            "左上に URL 入力から Agent 起動までを明るいアイコン付きで配置",
+            "上部に記事タイトルを明るい見出しとして配置",
             "中央に 3 行要約を付箋風の大きな吹き出しで配置",
             "右側に重要ポイントをカラフルなノードで配置",
-            "下部に ADK / Agent Runtime / Cloud Run / Cloud Storage の流れを親しみやすい矢印で描く",
+            "要約と重要ポイントのつながりを親しみやすい矢印で描く",
         ]
     if style == "minimal":
         return [
             "上部に記事タイトルと 3 行要約を余白多めに配置",
-            "中央に Agent の action/tool flow を細い線で整理",
+            "中央に記事の主要概念だけを細い線で整理",
             "右側に重要ポイントを少数のシンプルなラベルで配置",
-            "下部に ADK / Agent Runtime / Cloud Storage の関係だけを控えめに示す",
+            "補足要素は足さず、要約と重要ポイントの関係だけを控えめに示す",
         ]
     return list(_DEFAULT_PLAN_ITEMS)
 
@@ -958,15 +951,15 @@ def _title_node(title: str) -> str:
 
 
 def _summary_node(index: int, line: str) -> str:
-    y = 214 + index * 54
+    y = 224 + index * 108
     text = f"{index + 1}. {line}"
-    tspans = _svg_tspans(text, x=78, first_y=y, max_chars=29, max_lines=2, line_gap=20)
+    tspans = _svg_tspans(text, x=78, first_y=y, max_chars=29, max_lines=3, line_gap=22)
     return f'<text class="summary">{tspans}</text>'
 
 
 def _point_node(index: int, point: str, accent: str) -> str:
-    y = 230 + index * 72
-    tspans = _svg_tspans(point, x=808, first_y=y - 16, max_chars=13, max_lines=3, line_gap=16)
+    y = 220 + index * 56
+    tspans = _svg_tspans(point, x=808, first_y=y - 14, max_chars=13, max_lines=2, line_gap=16)
     return f"""
   <circle cx="774" cy="{y}" r="18" fill="{accent}" opacity="0.9" />
   <text x="768" y="{y + 6}" font-family="sans-serif" font-size="17" font-weight="800" fill="#ffffff">{index + 1}</text>

@@ -134,6 +134,7 @@ class RuntimeAgentClient:
         final_text = ""
         event_count = 0
         first_event_seconds = None
+        event_shapes: list[str] = []
         for event in remote_agent.stream_query(
             user_id=os.getenv("AGENT_RUNTIME_USER_ID", "workshop-user"),
             message=json.dumps(payload, ensure_ascii=False),
@@ -142,6 +143,8 @@ class RuntimeAgentClient:
             if first_event_seconds is None:
                 first_event_seconds = time.perf_counter() - started
             event_payload = _event_to_plain_data(event)
+            if len(event_shapes) < 8:
+                event_shapes.append(_event_shape(event_payload))
             candidate = _runtime_response_from_event(event_payload)
             if candidate:
                 runtime_response = candidate
@@ -156,11 +159,15 @@ class RuntimeAgentClient:
             elapsed_seconds,
         )
         if runtime_response:
-            if runtime_response.error:
-                raise RuntimeError(runtime_response.error)
-            return runtime_response
+            return _validated_runtime_response(runtime_response)
         if final_text:
-            return _runtime_response_from_text(final_text)
+            return _validated_runtime_response(_runtime_response_from_text(final_text))
+        logger.warning(
+            "runtime_no_workflow_response operation=%s event_count=%s event_shapes=%s",
+            operation,
+            event_count,
+            event_shapes,
+        )
         raise RuntimeError("Agent Runtime returned no workflow response")
 
     def _get_remote_agent(self):
@@ -325,7 +332,40 @@ def _runtime_response_from_event(event: dict) -> Optional[RuntimeWorkflowRespons
                 return RuntimeWorkflowResponse.model_validate(response)
             except Exception:
                 continue
+        text = part.get("text")
+        if isinstance(text, str) and text.strip():
+            try:
+                return _runtime_response_from_text(text)
+            except Exception:
+                continue
     return None
+
+
+def _validated_runtime_response(response: RuntimeWorkflowResponse) -> RuntimeWorkflowResponse:
+    logger.info(
+        "runtime_contract operation=%s has_summary=%s has_graphic=%s error=%s",
+        response.operation,
+        response.summary is not None,
+        response.graphic is not None,
+        bool(response.error),
+    )
+    if response.error:
+        raise RuntimeError(response.error)
+    return response
+
+
+def _event_shape(event: dict) -> str:
+    content = event.get("content") or {}
+    part_shapes = []
+    for part in content.get("parts") or []:
+        keys = sorted(part.keys())
+        if "text" in part and isinstance(part.get("text"), str):
+            keys.append(f"text_len={len(part['text'])}")
+        if "function_response" in part or "functionResponse" in part:
+            function_response = part.get("function_response") or part.get("functionResponse") or {}
+            keys.append(f"function={function_response.get('name', '')}")
+        part_shapes.append(",".join(keys))
+    return f"author={event.get('author', '')} parts={part_shapes}"
 
 
 def _last_text_from_event(event: dict) -> str:

@@ -74,7 +74,9 @@ def test_phase1_url_to_svg_regeneration_flow():
     regen_job_id = _job_id(regen_job.text, "graphic")
 
     regenerated = _poll_job(client, regen_job_id)
-    assert "Feedback:" in regenerated
+    assert "Feedback:" not in regenerated
+    assert "Agent Flow" not in regenerated
+    assert "Visual Plan" not in regenerated
     assert "<svg" in regenerated
 
 
@@ -167,10 +169,42 @@ def test_fallback_svg_keeps_heading_and_summary_text_separate():
         )
     )
 
-    assert 'y="180" class="label">3 Line Summary' in svg
-    assert '<tspan x="78" y="214">' in svg
+    assert 'y="180" class="label">3行要約' in svg
+    assert '<tspan x="78" y="224">' in svg
     assert 'class="summary"><tspan' in svg
+    assert "Agent Flow" not in svg
+    assert "Visual Plan" not in svg
     assert "Demo..." not in svg
+
+
+def test_graphic_prompt_excludes_workshop_runtime_scaffolding(monkeypatch):
+    from agent import tools
+    import asyncio
+
+    captured = {}
+
+    async def fake_generate_image_data(prompt: str):
+        captured["prompt"] = prompt
+        return b"png", "image/png"
+
+    monkeypatch.setenv("MOCK_MODE", "false")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(tools, "_generate_image_data", fake_generate_image_data)
+
+    image = asyncio.run(
+        tools.generate_image_artifact(
+            ["中央に3行要約、右側に重要ポイントを配置"],
+            style="business",
+            summary_lines=["要約1", "要約2", "要約3"],
+            key_points=["ポイント1", "ポイント2"],
+        )
+    )
+
+    assert image.data == b"png"
+    assert "要約1" in captured["prompt"]
+    assert "ポイント1" in captured["prompt"]
+    for forbidden in ["勉強会", "デモ", "URL取得", "Agent Runtime", "ADK", "Cloud Run", "Cloud Storage", "Visual Plan"]:
+        assert forbidden not in captured["prompt"]
 
 
 def test_svg_text_wrap_only_adds_ellipsis_when_truncated():
@@ -240,14 +274,47 @@ def test_graphic_failure_unlocks_summary_review_and_preserves_stage_until_swap()
 
 def test_job_polling_and_swap_animation_are_calm():
     job = (Path(__file__).resolve().parents[1] / "web/templates/partials/job.html").read_text()
+    job_content = (Path(__file__).resolve().parents[1] / "web/templates/partials/job_content.html").read_text()
     styles = (Path(__file__).resolve().parents[1] / "web/static/styles.css").read_text()
 
-    assert 'hx-trigger="every 1500ms"' in job
+    assert 'hx-trigger="every 2s"' in job
+    assert 'hx-target="#{{ job.job_id }}-content"' in job
+    assert 'hx-swap="innerHTML"' in job
+    assert 'id="{{ job.job_id }}-content"' in job
     assert 'every 600ms' not in job
-    assert 'job.kind == "summary"' in job
+    assert 'job.kind == "summary"' in job_content
     assert "#graphic-stage > section" in styles
     assert "@keyframes fade-in" in styles
     assert "form.htmx-request button" in styles
+
+
+def test_job_polling_updates_inner_content_until_terminal_swap():
+    from web.main import AgentJob, jobs
+
+    client = TestClient(app)
+    job = AgentJob(job_id="summary-test-poll", kind="summary", title="要約中")
+    jobs[job.job_id] = job
+    try:
+        running = client.get(
+            f"/jobs/{job.job_id}",
+            headers={"HX-Request": "true", "HX-Target": f"{job.job_id}-content"},
+        )
+        assert running.status_code == 200
+        assert f'id="{job.job_id}"' not in running.text
+        assert "Agent 処理中" in running.text
+
+        job.status = "failed"
+        job.error = "boom"
+        failed = client.get(
+            f"/jobs/{job.job_id}",
+            headers={"HX-Request": "true", "HX-Target": f"{job.job_id}-content"},
+        )
+        assert failed.status_code == 200
+        assert failed.headers["HX-Retarget"] == f"#{job.job_id}"
+        assert failed.headers["HX-Reswap"] == "outerHTML"
+        assert f'id="{job.job_id}"' in failed.text
+    finally:
+        jobs.pop(job.job_id, None)
 
 
 def test_adk_backend_adds_narration_progress(monkeypatch):
@@ -473,6 +540,157 @@ def test_runtime_client_parses_function_response_event():
     assert response.operation == "summarize_url"
     assert response.summary is not None
     assert response.summary.title == "Title"
+
+
+def test_runtime_client_parses_text_response_event():
+    from web.agent_client import _runtime_response_from_event
+
+    event = {
+        "content": {
+            "parts": [
+                {
+                    "text": (
+                        '{"operation":"summarize_url","summary":{'
+                        '"session_id":"s1","url":"https://example.com","title":"Title",'
+                        '"summary_lines":["a","b","c"],"key_points":["p1"],'
+                        '"article_text":"body","text_backend":"runtime","progress":[]}}'
+                    )
+                }
+            ]
+        }
+    }
+
+    response = _runtime_response_from_event(event)
+
+    assert response is not None
+    assert response.operation == "summarize_url"
+    assert response.summary is not None
+    assert response.summary.title == "Title"
+
+
+def test_runtime_operation_sync_accepts_text_part_contract():
+    from web.agent_client import RuntimeAgentClient
+
+    class RemoteAgent:
+        def stream_query(self, user_id: str, message: str):
+            yield {
+                "author": "graphic_recording_runtime_workflow",
+                "content": {
+                    "parts": [
+                        {
+                            "text": (
+                                '{"operation":"summarize_url","summary":{'
+                                '"session_id":"s1","url":"https://example.com","title":"Title",'
+                                '"summary_lines":["a","b","c"],"key_points":["p1"],'
+                                '"article_text":"body","text_backend":"runtime","progress":[]}}'
+                            )
+                        }
+                    ]
+                },
+            }
+
+    response = RuntimeAgentClient()._run_runtime_operation_sync(
+        RemoteAgent(),
+        {"operation": "summarize_url"},
+    )
+
+    assert response.summary is not None
+    assert response.summary.title == "Title"
+
+
+def test_runtime_agent_returns_error_contract_for_bad_payload(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from agent import adk_agent
+    from agent.runtime_contract import RuntimeWorkflowResponse
+
+    class FakeEvent:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class FakePart:
+        def __init__(self, text: str):
+            self.text = text
+
+    class FakeContent:
+        def __init__(self, role: str, parts: list):
+            self.role = role
+            self.parts = parts
+
+    monkeypatch.setattr(adk_agent, "Event", FakeEvent)
+    monkeypatch.setattr(adk_agent, "types", SimpleNamespace(Content=FakeContent, Part=FakePart))
+
+    try:
+        runtime_agent = adk_agent.RuntimeWorkflowAgent(
+            name="runtime",
+            description="runtime test",
+        )
+    except TypeError:
+        runtime_agent = adk_agent.RuntimeWorkflowAgent()
+        runtime_agent.name = "runtime"
+    ctx = SimpleNamespace(
+        invocation_id="invocation-1",
+        branch=None,
+        user_content=SimpleNamespace(parts=[SimpleNamespace(text="{bad json")]),
+    )
+
+    async def collect_events():
+        return [event async for event in runtime_agent._run_async_impl(ctx)]
+
+    events = asyncio.run(collect_events())
+    response = RuntimeWorkflowResponse.model_validate_json(events[0].content.parts[0].text)
+
+    assert response.operation == "unknown"
+    assert "JSONDecodeError" in response.error
+
+
+def test_runtime_dispatcher_calls_summary_workflow_directly(monkeypatch):
+    import asyncio
+
+    from agent.models import ProgressStep, SummaryResult
+    from agent import runtime_workflows
+
+    async def fake_summarize_url(url: str) -> SummaryResult:
+        return SummaryResult(
+            session_id="session-1",
+            url=url,
+            title="Direct",
+            summary_lines=["a", "b", "c"],
+            key_points=["p1", "p2", "p3", "p4"],
+            article_text="body",
+            text_backend="test",
+            progress=[ProgressStep("direct dispatch", "done", "ok")],
+        )
+
+    monkeypatch.setattr(runtime_workflows, "summarize_url", fake_summarize_url)
+
+    response = asyncio.run(
+        runtime_workflows.dispatch_runtime_operation(
+            {"operation": "summarize_url", "url": "https://example.com"}
+        )
+    )
+
+    assert response.operation == "summarize_url"
+    assert response.summary is not None
+    assert response.summary.title == "Direct"
+
+
+def test_runtime_payload_parser_reads_user_message_json():
+    from types import SimpleNamespace
+
+    from agent.adk_agent import _runtime_payload_from_context
+
+    ctx = SimpleNamespace(
+        user_content=SimpleNamespace(
+            parts=[SimpleNamespace(text='{"operation":"summarize_url","url":"https://example.com"}')]
+        )
+    )
+
+    assert _runtime_payload_from_context(ctx) == {
+        "operation": "summarize_url",
+        "url": "https://example.com",
+    }
 
 
 def test_article_fetch_size_limit_helpers(monkeypatch):
