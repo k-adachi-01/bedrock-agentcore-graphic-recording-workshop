@@ -18,17 +18,14 @@
       </div>
       {% if graphic.artifact_url %}
         <div class="flex flex-wrap items-center gap-3">
-          <a href="{{ graphic.artifact_url }}" target="_blank" rel="noreferrer" class="text-sm font-semibold text-blue-700 hover:text-blue-900">
-            画像を開く
-          </a>
-          <a href="{{ graphic.artifact_url }}" download class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            画像を開いて保存
+          <a href="/graphics/{{ graphic.session_id }}/download" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+            画像を保存
           </a>
         </div>
       {% endif %}
     </div>
     <div class="graphic-canvas bg-white p-2 sm:p-3">
-      {% if graphic.artifact_url %}
+      {% if graphic.artifact_url and not graphic.svg %}
         <img src="{{ graphic.artifact_url }}" alt="Graphic recording" class="mx-auto block h-auto w-full" />
       {% else %}
         {{ graphic.svg | safe }}
