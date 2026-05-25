@@ -36,6 +36,14 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role "roles/aiplatform.user" \
   --quiet
 
+# The Compute Engine default SA doubles as the Cloud Build worker for
+# `gcloud run deploy --source .` in projects created after 2024-04, so it
+# needs storage / Artifact Registry / Cloud Logging access via this bundle role.
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${RUNTIME_SA}" \
+  --role "roles/cloudbuild.builds.builder" \
+  --quiet
+
 if gcloud services identity create --service cloudbuild.googleapis.com --project "${PROJECT_ID}" >/dev/null 2>&1; then
   CLOUD_BUILD_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com"
   echo "Granting Cloud Build service agent Cloud Run builder permissions..."

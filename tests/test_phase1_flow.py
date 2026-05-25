@@ -351,7 +351,40 @@ def test_deploy_builds_use_workshop_constraints():
     assert "COPY requirements.txt constraints-workshop.txt" in dockerfile
     assert "pip install --no-cache-dir -r requirements.txt -c constraints-workshop.txt" in dockerfile
     assert '"constraints-workshop.txt"' in deploy_script
-    assert '"requirements": requirements_file' in deploy_script
+    assert '"requirements": runtime_requirements_file' in deploy_script
+
+
+def test_agent_runtime_requirements_file_omits_comments_and_blank_lines(tmp_path):
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    script_path = root / "scripts" / "deploy-agent-runtime.py"
+    spec = importlib.util.spec_from_file_location("deploy_agent_runtime", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    source = tmp_path / "constraints.txt"
+    source.write_text(
+        "\n".join(
+            [
+                "# Workshop constraints.",
+                "",
+                "  # indented comment",
+                "google-adk==1.34.0",
+                "google-cloud-aiplatform==1.153.1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    prepared = Path(module.prepare_runtime_requirements_file(str(source), tmp_path / "out"))
+
+    assert prepared.read_text(encoding="utf-8") == (
+        "google-adk==1.34.0\n"
+        "google-cloud-aiplatform==1.153.1\n"
+    )
 
 
 def test_user_facing_error_message_mapping():
