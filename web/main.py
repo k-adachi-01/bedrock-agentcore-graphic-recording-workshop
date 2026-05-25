@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -246,6 +246,23 @@ async def regenerate_graphic(
     )
 
 
+@app.get("/graphics/{session_id}/download")
+async def download_graphic(session_id: str) -> FileResponse:
+    graphic = graphics.get(session_id)
+    if not graphic:
+        raise HTTPException(status_code=404, detail="Graphic not found")
+
+    artifact_path = Path(graphic.artifact_path)
+    if not artifact_path.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    return FileResponse(
+        artifact_path,
+        media_type=graphic.artifact_mime_type,
+        filename=_download_filename(graphic),
+    )
+
+
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 async def poll_job(request: Request, job_id: str) -> HTMLResponse:
     job = jobs.get(job_id)
@@ -322,6 +339,11 @@ def _retarget_job_response(response: HTMLResponse, job_id: str, request: Request
         response.headers["HX-Retarget"] = f"#{job_id}"
         response.headers["HX-Reswap"] = "outerHTML"
     return response
+
+
+def _download_filename(graphic: GraphicResult) -> str:
+    suffix = Path(graphic.artifact_path).suffix or ".bin"
+    return f"graphic-recording-{graphic.session_id[:8]}{suffix}"
 
 
 def _schedule_background_task(coro) -> None:

@@ -51,6 +51,10 @@ def test_phase1_url_to_svg_regeneration_flow():
 
     graphic = _poll_job(client, graphic_job_id)
     assert "グラレコ結果" in graphic
+    assert "画像を保存" in graphic
+    assert f'href="/graphics/{session_id}/download"' in graphic
+    assert "画像を開く" not in graphic
+    assert "画像を開いて保存" not in graphic
     assert 'data-workflow-step="4"' in graphic
     assert 'data-current-step="4"' in graphic
     assert 'hx-swap-oob="true"' in graphic
@@ -315,6 +319,33 @@ def test_job_polling_updates_inner_content_until_terminal_swap():
         assert f'id="{job.job_id}"' in failed.text
     finally:
         jobs.pop(job.job_id, None)
+
+
+def test_graphic_download_uses_attachment_response(tmp_path):
+    from agent.models import GraphicResult
+    from web.main import graphics
+
+    artifact = tmp_path / "session-download.png"
+    artifact.write_bytes(b"png-data")
+    graphic = GraphicResult(
+        session_id="session-download",
+        visual_plan=[],
+        artifact_path=str(artifact),
+        artifact_mime_type="image/png",
+    )
+    graphics[graphic.session_id] = graphic
+    client = TestClient(app)
+
+    try:
+        response = client.get(f"/graphics/{graphic.session_id}/download")
+    finally:
+        graphics.pop(graphic.session_id, None)
+
+    assert response.status_code == 200
+    assert response.content == b"png-data"
+    assert response.headers["content-type"] == "image/png"
+    assert "attachment" in response.headers["content-disposition"]
+    assert "graphic-recording-session-" in response.headers["content-disposition"]
 
 
 def test_adk_backend_adds_narration_progress(monkeypatch):

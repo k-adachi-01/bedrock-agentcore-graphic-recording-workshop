@@ -152,6 +152,8 @@ async def _build_graphic(
             artifact_url = tools.artifact_url_for_path(artifact_path)
     else:
         artifact_path, artifact_url = await tools.save_artifact_with_url(summary.session_id, svg)
+        if not artifact_url:
+            artifact_url = tools.artifact_url_for_path(artifact_path)
     _log_duration("generate_graphic", "save_artifact", started, session_id=summary.session_id)
     progress[4] = ProgressStep("成果物を保存", "done", artifact_path)
     await _emit(progress, on_progress)
