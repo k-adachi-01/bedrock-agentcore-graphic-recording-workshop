@@ -46,7 +46,7 @@ class ArticleSummary(BaseModel):
         max_length=3,
     )
     key_points: list[str] = Field(
-        description="Four to six Japanese graphic-recording material points, formatted as tag plus short fact.",
+        description="Four to six Japanese article-reading notes for graphic recording material.",
         min_length=4,
         max_length=6,
     )
@@ -134,26 +134,26 @@ async def summarize_article(title: str, article_text: str) -> dict[str, list[str
                 "Phase 1 は mock mode と fallback SVG により、外部 API なしでデモ体験を確認します。",
             ],
             "key_points": [
-                "境界: Web App から Agent を呼び出す",
-                "実行: local backend で同じ action を確認",
-                "代替: 画像失敗時も SVG で結果確認",
-                "保存: artifact 化して後続共有に使う",
+                "記事取得、要約、構成案作成、画像生成を一つの流れとして扱い、利用者は URL を入力するだけで結果まで確認できます。",
+                "ADK の tool を小さく分けることで、記事取得、要約、描画、保存といった責務を追いやすくしています。",
+                "mock mode と fallback SVG により、外部 API が使えない場面でも画面遷移と体験を先に確認できます。",
+                "生成画像は artifact として保存され、あとから Cloud Storage や signed URL を使う構成へ広げられます。",
             ],
             "backend": "mock",
         }
 
-    prompt = f"""次の記事を日本語で要約し、グラフィックレコーディングに使う素材を抽出してください。
+    prompt = f"""次の記事を日本語で要約し、グラフィックレコーディングに使う記事理解メモを作ってください。
 
 制約:
 - summary_lines は必ず3行
 - summary_lines は記事の論旨・ストーリーを自然な説明文で3行にまとめる
 - key_points は4から6個
-- key_points は summary_lines の言い換えにせず、画像内の付箋・バッジ・アイコン横ラベルに使える「事実の粒」にする
-- key_points は必ず「分類: 短い内容」の形式にする
-- key_points の分類は、主題、用語、技術、数値、流れ、関係、対比、課題、解決、示唆などから記事内容に合うものを選ぶ
-- key_points は固有名詞、数値、プロセス、関係性、対比、課題と解決など、図解しやすい情報を優先する
-- key_points は1項目35文字前後までを目安にし、長い説明文や文末の「。」を避ける
-- 記事に書かれている内容だけを使い、具体的で短い表現にする
+- key_points は summary_lines の言い換えにせず、記事をどう読めばよいかが分かる補足メモにする
+- key_points は背景、流れ、筆者の主張、印象的な工夫、具体例、読後の示唆を自然文で表す
+- key_points は1項目60から120文字程度まで許容し、短くしすぎて分類ラベルや施策名だけにならないようにする
+- key_points に「技術:」「解決:」「数値:」のような分類ラベルを機械的に付けない。必要な場合だけ自然に使う
+- 固有名詞や数値は、記事の理解や雰囲気に効く場合だけ含める
+- 記事に書かれている内容だけを使い、ふわっとした趣旨と具体例の両方が残る表現にする
 - 出力は指定 schema に厳密に従う
 
 タイトル:
@@ -282,8 +282,8 @@ async def create_visual_plan_for_style(
 - 画面上の配置、強調する概念、視線誘導が分かる指示にする
 - 選択スタイルに合う色調、密度、アイコン表現にする
 - 3行要約は記事全体のストーリーとして、上部見出し・中央フロー・短い説明帯の材料にする
-- 重要ポイントは短いラベル候補として、付箋、バッジ、キーワードチップ、アイコン横の注釈に分散配置する
-- 重要ポイントを説明文として再記述せず、分類と短い内容を活かして視覚要素に割り当てる
+- 重要ポイントは記事理解メモとして読み取り、画像内では短いラベル、付箋、吹き出し、アイコン横の注釈に要約して使う
+- 重要ポイントを分類付きの施策リストとして扱わず、記事の雰囲気、主張、流れ、具体例が伝わる構成にする
 - 3行要約と重要ポイントを同じ粒度の文章ボックスとして並べない
 - 画像内に表示する文字は 3行要約と重要ポイントの内容だけに限定する
 - 記事内容ではない、アプリの処理手順・生成基盤・説明用の文脈を入れない
@@ -358,10 +358,10 @@ async def generate_image_artifact(
 - アプリケーションや生成システムの説明ではなく、記事内容そのものを図解する
 
 画像内に表示してよい文字:
-3行要約:
+3行要約（全体ストーリーの材料）:
 {chr(10).join(f"- {line}" for line in allowed_summary) or "- 3行要約"}
 
-重要ポイント:
+重要ポイント（記事理解メモ。必要に応じて短い表示文に要約する）:
 {chr(10).join(f"- {point}" for point in allowed_points) or "- 重要ポイント"}
 
 構成案（配置の参考のみ。構成案の文言は画像に書かない）:
@@ -378,10 +378,11 @@ async def generate_image_artifact(
 - 白背景、読みやすい太線、アイコン、矢印、付箋風メモ
 - 日本語テキストは短く、大きく、読みやすく
 - 3行要約は上部の短いストーリー帯、または中央の大きな流れとして扱う
-- 重要ポイントは付箋、バッジ、キーワードチップ、アイコン横ラベルとして周辺に配置する
-- 重要ポイントの「分類: 内容」は分類を小見出しやチップ名、内容を短いラベルとして活かす
+- 重要ポイントは記事理解メモとして使い、画像内では付箋、吹き出し、キーワードチップ、アイコン横ラベルに短く言い換える
+- 重要ポイントをそのまま長文で全部書かず、趣旨、印象的な例、流れ、示唆が伝わる短い表現に圧縮する
+- 選択スタイルに合わせ、business は構造を明快に、pop は親しみやすく、minimal は余白と少数要素で表現する
 - 3行要約と重要ポイントを同じ大きさの文章ボックスで並べるだけの構図にしない
-- 表、長文カード、資料スライド風の箱詰めレイアウトを避け、流れ・関係・対比・階層が見える構図にする
+- 表、長文カード、資料スライド風の箱詰めレイアウトに寄せすぎず、流れ・関係・対比・階層が見える構図にする
 - 記事本文にないアプリの処理手順、生成基盤、説明用の文脈、構成案ラベルなどの語句を画像内に追加しない
 - 見出しは「3行要約」「重要ポイント」など記事内容を示すものだけにする
 - 選択スタイルと矛盾する色や装飾を混ぜない
@@ -894,15 +895,14 @@ def _heuristic_summary(title: str, article_text: str, reason: str = "") -> dict[
 
 
 def _heuristic_key_points(sentences: list[str]) -> list[str]:
-    labels = ["主題", "用語", "流れ", "関係", "課題", "示唆"]
     points: list[str] = []
-    for index, sentence in enumerate(sentences[:6]):
+    for sentence in sentences[:6]:
         cleaned = sentence.strip().rstrip("。.!?")
         if not cleaned:
             continue
-        if len(cleaned) > 34:
-            cleaned = f"{cleaned[:33]}..."
-        points.append(f"{labels[index % len(labels)]}: {cleaned}")
+        if len(cleaned) > 110:
+            cleaned = f"{cleaned[:109]}..."
+        points.append(f"{cleaned}。")
     return points
 
 
