@@ -26,7 +26,7 @@ from web.auth import (
     password_matches,
     request_is_authenticated,
 )
-from web.agent_client import build_agent_client
+from web.agent_client import AgentClient, build_agent_client
 from web.logging_config import configure_logging
 
 
@@ -117,12 +117,22 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.mount("/artifacts", StaticFiles(directory=Path("artifacts")), name="artifacts")
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
-agent_client = None
+agent_client: Optional[AgentClient] = None
+
+MAX_SESSIONS = 200
+MAX_JOBS = 400
 
 sessions: dict[str, SummaryResult] = {}
 graphics: dict[str, GraphicResult] = {}
 jobs: dict[str, AgentJob] = {}
 background_tasks: set[asyncio.Task] = set()
+
+
+def _evict_oldest(store: dict, max_size: int) -> None:
+    """Remove oldest entries when the store exceeds max_size."""
+    while len(store) > max_size:
+        oldest_key = next(iter(store))
+        store.pop(oldest_key, None)
 
 
 @app.middleware("http")
@@ -334,6 +344,7 @@ def _create_job(kind: JobKind, title: str, feedback: str = "") -> AgentJob:
     job_id = f"{kind}-{uuid4().hex}"
     job = AgentJob(job_id=job_id, kind=kind, title=title, feedback=feedback)
     jobs[job_id] = job
+    _evict_oldest(jobs, MAX_JOBS)
     return job
 
 
@@ -374,7 +385,16 @@ def _is_external_artifact_url(url: str) -> bool:
 def _schedule_background_task(coro) -> None:
     task = asyncio.create_task(coro)
     background_tasks.add(task)
-    task.add_done_callback(background_tasks.discard)
+    task.add_done_callback(_on_background_task_done)
+
+
+def _on_background_task_done(task: asyncio.Task) -> None:
+    background_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("Background task failed unexpectedly: %s", exc, exc_info=exc)
 
 
 async def _run_summary_job(job_id: str, url: str) -> None:
@@ -393,6 +413,7 @@ async def _run_summary_job(job_id: str, url: str) -> None:
         return
 
     sessions[summary.session_id] = summary
+    _evict_oldest(sessions, MAX_SESSIONS)
     job.summary = summary
     job.progress = summary.progress
     job.status = "done"
@@ -426,6 +447,7 @@ async def _run_graphic_job(job_id: str, summary: SummaryResult, feedback: str) -
         return
 
     graphics[summary.session_id] = graphic
+    _evict_oldest(graphics, MAX_SESSIONS)
     job.graphic = graphic
     job.progress = graphic.progress
     job.status = "done"
@@ -499,7 +521,7 @@ def _safe_next_path(path: str) -> str:
     return path
 
 
-def _agent_client():
+def _agent_client() -> AgentClient:
     global agent_client
     if agent_client is None:
         agent_client = build_agent_client()

@@ -87,5 +87,5 @@ def password_matches(candidate: str) -> bool:
 
 def _sign(payload: str) -> str:
     secret = auth_secret_key() or auth_password()
-    digest = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).digest()
+    digest = hmac.HMAC(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")

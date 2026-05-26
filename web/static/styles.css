@@ -49,10 +49,6 @@ button.htmx-request {
   padding: 6px;
 }
 
-.workspace-shell {
-  display: none;
-}
-
 .locked-visible {
   display: none;
 }
