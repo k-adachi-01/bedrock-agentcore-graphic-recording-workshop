@@ -582,8 +582,9 @@ async def _fetch_public_url(url: str) -> httpx.Response:
                     current_url = urljoin(str(response.url), location)
                     continue
                 response.raise_for_status()
-                raw_content = await _read_limited_response(response, article_fetch_max_bytes())
-                content = _decode_response_content(raw_content, response.headers)
+                max_bytes = article_fetch_max_bytes()
+                raw_content = await _read_limited_response(response, max_bytes)
+                content = _decode_response_content(raw_content, response.headers, max_bytes)
                 headers = httpx.Headers(response.headers)
                 headers.pop("content-encoding", None)
                 headers["content-length"] = str(len(content))
@@ -608,25 +609,37 @@ async def _read_limited_response(response: httpx.Response, max_bytes: int) -> by
     return b"".join(chunks)
 
 
-def _decode_response_content(raw_content: bytes, headers: httpx.Headers) -> bytes:
+def _decode_response_content(raw_content: bytes, headers: httpx.Headers, max_bytes: int) -> bytes:
     encoding = headers.get("content-encoding", "").lower().strip()
     if not encoding or encoding == "identity":
+        if len(raw_content) > max_bytes:
+            raise ValueError(f"Article response exceeds {max_bytes} bytes")
         return raw_content
 
     try:
         if encoding == "gzip":
-            return gzip.decompress(raw_content)
+            decoded = gzip.decompress(raw_content)
+            if len(decoded) > max_bytes:
+                raise ValueError(f"Article response exceeds {max_bytes} bytes")
+            return decoded
         if encoding == "deflate":
-            return zlib.decompress(raw_content)
+            decoded = zlib.decompress(raw_content)
+            if len(decoded) > max_bytes:
+                raise ValueError(f"Article response exceeds {max_bytes} bytes")
+            return decoded
     except (OSError, zlib.error) as exc:
         logger.warning(
             "Ignoring invalid Content-Encoding=%s while fetching article: %s",
             encoding,
             exc,
         )
+        if len(raw_content) > max_bytes:
+            raise ValueError(f"Article response exceeds {max_bytes} bytes")
         return raw_content
 
     logger.warning("Ignoring unsupported Content-Encoding=%s while fetching article", encoding)
+    if len(raw_content) > max_bytes:
+        raise ValueError(f"Article response exceeds {max_bytes} bytes")
     return raw_content
 
 

@@ -247,13 +247,16 @@ async def regenerate_graphic(
 
 
 @app.get("/graphics/{session_id}/download")
-async def download_graphic(session_id: str) -> FileResponse:
+async def download_graphic(session_id: str) -> Response:
     graphic = graphics.get(session_id)
     if not graphic:
         raise HTTPException(status_code=404, detail="Graphic not found")
 
-    artifact_path = Path(graphic.artifact_path)
-    if not artifact_path.is_file():
+    if _is_external_artifact_url(graphic.artifact_url):
+        return RedirectResponse(url=graphic.artifact_url, status_code=307)
+
+    artifact_path = _safe_local_artifact_path(graphic.artifact_path)
+    if artifact_path is None:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     return FileResponse(
@@ -344,6 +347,28 @@ def _retarget_job_response(response: HTMLResponse, job_id: str, request: Request
 def _download_filename(graphic: GraphicResult) -> str:
     suffix = Path(graphic.artifact_path).suffix or ".bin"
     return f"graphic-recording-{graphic.session_id[:8]}{suffix}"
+
+
+def _artifact_dir() -> Path:
+    return Path("artifacts").resolve()
+
+
+def _safe_local_artifact_path(artifact_path: str) -> Optional[Path]:
+    if not artifact_path:
+        return None
+    path = Path(artifact_path).resolve()
+    artifact_dir = _artifact_dir()
+    try:
+        path.relative_to(artifact_dir)
+    except ValueError:
+        return None
+    if not path.is_file():
+        return None
+    return path
+
+
+def _is_external_artifact_url(url: str) -> bool:
+    return url.startswith("http://") or url.startswith("https://")
 
 
 def _schedule_background_task(coro) -> None:

@@ -52,7 +52,7 @@ def test_phase1_url_to_svg_regeneration_flow():
     graphic = _poll_job(client, graphic_job_id)
     assert "グラレコ結果" in graphic
     assert "画像を保存" in graphic
-    assert f'href="/graphics/{session_id}/download"' in graphic
+    assert f'href="/artifacts/{session_id}.svg"' in graphic
     assert "画像を開く" not in graphic
     assert "画像を開いて保存" not in graphic
     assert 'data-workflow-step="4"' in graphic
@@ -320,30 +320,36 @@ def test_job_polling_updates_inner_content_until_terminal_swap():
 
 
 def test_graphic_download_uses_attachment_response(tmp_path):
-    from agent.models import GraphicResult
-    from web.main import graphics
+    from web.main import _safe_local_artifact_path
 
     artifact = tmp_path / "session-download.png"
     artifact.write_bytes(b"png-data")
-    graphic = GraphicResult(
-        session_id="session-download",
-        visual_plan=[],
-        artifact_path=str(artifact),
-        artifact_mime_type="image/png",
-    )
-    graphics[graphic.session_id] = graphic
-    client = TestClient(app)
 
-    try:
-        response = client.get(f"/graphics/{graphic.session_id}/download")
-    finally:
-        graphics.pop(graphic.session_id, None)
+    assert _safe_local_artifact_path(str(artifact)) is None
 
-    assert response.status_code == 200
-    assert response.content == b"png-data"
-    assert response.headers["content-type"] == "image/png"
-    assert "attachment" in response.headers["content-disposition"]
-    assert "graphic-recording-session-" in response.headers["content-disposition"]
+
+def test_safe_local_artifact_path_accepts_artifacts_dir_file(tmp_path, monkeypatch):
+    from web import main
+
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact = artifact_dir / "session-download.png"
+    artifact.write_bytes(b"png-data")
+
+    monkeypatch.chdir(tmp_path)
+
+    safe_path = main._safe_local_artifact_path(str(artifact))
+
+    assert safe_path is not None
+    assert safe_path == artifact.resolve()
+
+
+def test_external_artifact_url_detection():
+    from web.main import _is_external_artifact_url
+
+    assert _is_external_artifact_url("https://signed.example/a.png") is True
+    assert _is_external_artifact_url("http://signed.example/a.png") is True
+    assert _is_external_artifact_url("/artifacts/local.svg") is False
 
 
 def test_strands_backend_adds_narration_progress(monkeypatch):
@@ -751,9 +757,21 @@ def test_invalid_content_encoding_falls_back_to_raw_body():
     import httpx
 
     body = b"<html><title>Plain HTML</title></html>"
-    decoded = _decode_response_content(body, httpx.Headers({"content-encoding": "gzip"}))
+    decoded = _decode_response_content(body, httpx.Headers({"content-encoding": "gzip"}), 1024)
 
     assert decoded == body
+
+
+def test_decode_response_content_rejects_oversized_decoded_body():
+    from agent.tools import _decode_response_content
+    import gzip
+    import httpx
+    import pytest
+
+    compressed = gzip.compress(b"a" * 4096)
+
+    with pytest.raises(ValueError, match="exceeds 1024 bytes"):
+        _decode_response_content(compressed, httpx.Headers({"content-encoding": "gzip"}), 1024)
 
 
 def test_retryable_exception_detection():
