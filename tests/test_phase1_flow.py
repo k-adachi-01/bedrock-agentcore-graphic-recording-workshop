@@ -21,7 +21,7 @@ def test_phase1_url_to_svg_regeneration_flow():
     summary_job = client.post("/summaries", data={"url": "https://example.com/blog/demo"})
     assert summary_job.status_code == 200
     assert "現在の目安" in summary_job.text
-    assert "Agent Runtime に要約 workflow を送信" in summary_job.text
+    assert "AgentCore Runtime に要約 workflow を送信" in summary_job.text
     summary_job_id = _job_id(summary_job.text, "summary")
 
     summary = _poll_job(client, summary_job_id)
@@ -95,11 +95,11 @@ def test_real_fetch_rejects_localhost_when_mock_disabled(monkeypatch):
         asyncio.run(_assert_public_http_url("http://127.0.0.1:8000"))
 
 
-def test_non_mock_text_tools_fallback_without_gemini_credentials(monkeypatch):
+def test_non_mock_text_tools_fallback_without_bedrock_credentials(monkeypatch):
     monkeypatch.setenv("MOCK_MODE", "false")
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("AWS_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
 
     from agent.tools import create_visual_plan, summarize_article
     import asyncio
@@ -127,16 +127,13 @@ def test_style_decision_affects_plan_in_mock(monkeypatch):
     assert any("明るい" in item or "カラフル" in item for item in plan)
 
 
-def test_gemini_vertex_credentials_detection(monkeypatch):
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo-project")
-    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+def test_bedrock_credentials_detection(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "access")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
 
-    from agent.tools import has_gemini_credentials
+    from agent.tools import has_bedrock_credentials
 
-    assert has_gemini_credentials() is True
+    assert has_bedrock_credentials() is True
 
 
 def test_image_artifact_helpers():
@@ -152,8 +149,7 @@ def test_image_artifact_helpers():
     assert "data:image/png;base64,YWJj" in svg
     assert _extension_for_mime_type("image/png") == ".png"
     assert artifact_url_for_path("/tmp/custom-artifacts/abc.png") == "/artifacts/abc.png"
-    assert display_model_name("gemini-2.5-flash-image").endswith("(Nano Banana)")
-    assert display_model_name("gemini-3-pro-image-preview").endswith("(Nano Banana Pro)")
+    assert display_model_name("amazon.nova-canvas-v1:0").endswith("(Nova Canvas)")
 
 
 def test_fallback_svg_keeps_heading_and_summary_text_separate():
@@ -165,10 +161,10 @@ def test_fallback_svg_keeps_heading_and_summary_text_separate():
             "Demo",
             [
                 "Agent が記事取得から要約、画像生成までを一連の workflow として進めます。",
-                "ADK では fetch / summarize / plan / render などの tool を分けて実装します。",
+                "Strands では fetch / summarize / plan / render などの tool を分けて実装します。",
                 "Phase 1 は mock mode と fallback SVG により、外部 API なしで確認します。",
             ],
-            ["Web App は Agent Runtime 上の Agent を呼び出す境界を持つ"],
+            ["Web App は AgentCore Runtime 上の Agent を呼び出す境界を持つ"],
             ["中央に要約を配置"],
         )
     )
@@ -192,7 +188,9 @@ def test_graphic_prompt_excludes_workshop_runtime_scaffolding(monkeypatch):
         return b"png", "image/png"
 
     monkeypatch.setenv("MOCK_MODE", "false")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "access")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("BEDROCK_IMAGE_MODEL_ID", "amazon.nova-canvas-v1:0")
     monkeypatch.setattr(tools, "_generate_image_data", fake_generate_image_data)
 
     image = asyncio.run(
@@ -207,7 +205,7 @@ def test_graphic_prompt_excludes_workshop_runtime_scaffolding(monkeypatch):
     assert image.data == b"png"
     assert "要約1" in captured["prompt"]
     assert "ポイント1" in captured["prompt"]
-    for forbidden in ["勉強会", "デモ", "URL取得", "Agent Runtime", "ADK", "Cloud Run", "Cloud Storage", "Visual Plan"]:
+    for forbidden in ["勉強会", "デモ", "URL取得", "AgentCore Runtime", "Strands", "App Runner", "S3", "Visual Plan"]:
         assert forbidden not in captured["prompt"]
 
 
@@ -237,7 +235,7 @@ def test_fallback_svg_wraps_dense_japanese_text():
 
     svg = asyncio.run(
         render_svg(
-            "とても長いタイトルのブログ記事を Agent Runtime でグラレコに変換するデモ",
+            "とても長いタイトルのブログ記事を AgentCore Runtime でグラレコに変換するデモ",
             ["あ" * 80, "い" * 80, "う" * 80],
             ["え" * 80, "お" * 80, "か" * 80, "き" * 80],
             ["く" * 90, "け" * 90, "こ" * 90],
@@ -348,17 +346,17 @@ def test_graphic_download_uses_attachment_response(tmp_path):
     assert "graphic-recording-session-" in response.headers["content-disposition"]
 
 
-def test_adk_backend_adds_narration_progress(monkeypatch):
+def test_strands_backend_adds_narration_progress(monkeypatch):
     monkeypatch.setenv("MOCK_MODE", "true")
     monkeypatch.setenv("MOCK_STEP_DELAY", "0")
 
-    from web.agent_client import AdkAgentClient
+    from web.agent_client import StrandsAgentClient
     import asyncio
 
-    summary = asyncio.run(AdkAgentClient().summarize_url("https://example.com/adk-demo"))
+    summary = asyncio.run(StrandsAgentClient().summarize_url("https://example.com/strands-demo"))
 
-    assert summary.progress[0].label == "ADK LlmAgent が summarize_url action を解説"
-    assert summary.progress[0].detail == "adk:dry-run:mock-mode"
+    assert summary.progress[0].label == "Strands Agent が summarize_url action を解説"
+    assert summary.progress[0].detail == "strands:dry-run:mock-mode"
 
 
 def test_password_auth_redirects_and_allows_login(monkeypatch):
@@ -414,22 +412,22 @@ def test_production_requires_app_password(monkeypatch):
 
 def test_runtime_backend_requires_resource_name(monkeypatch):
     monkeypatch.setenv("AGENT_BACKEND", "runtime")
-    monkeypatch.delenv("AGENT_RUNTIME_RESOURCE_NAME", raising=False)
+    monkeypatch.delenv("AGENTCORE_RUNTIME_ARN", raising=False)
 
     from web.agent_client import build_agent_client
     import asyncio
     import pytest
 
     client = build_agent_client()
-    with pytest.raises(RuntimeError, match="AGENT_RUNTIME_RESOURCE_NAME"):
+    with pytest.raises(RuntimeError, match="AGENTCORE_RUNTIME_ARN"):
         asyncio.run(client.summarize_url("https://example.com"))
 
 
 def test_runtime_backend_rejects_placeholder_resource_name(monkeypatch):
     monkeypatch.setenv("AGENT_BACKEND", "runtime")
     monkeypatch.setenv(
-        "AGENT_RUNTIME_RESOURCE_NAME",
-        "projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/RESOURCE_ID",
+        "AGENTCORE_RUNTIME_ARN",
+        "arn:aws:bedrock-agentcore:us-east-1:ACCOUNT_ID:runtime/RUNTIME_ID",
     )
 
     from web.agent_client import build_agent_client
@@ -444,19 +442,19 @@ def test_runtime_backend_rejects_placeholder_resource_name(monkeypatch):
 def test_deploy_builds_use_workshop_constraints():
     root = Path(__file__).resolve().parents[1]
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
-    deploy_script = (root / "scripts" / "deploy-agent-runtime.py").read_text(encoding="utf-8")
+    deploy_script = (root / "scripts" / "deploy-agentcore-runtime.py").read_text(encoding="utf-8")
 
     assert "COPY requirements.txt constraints-workshop.txt" in dockerfile
-    assert "pip install --no-cache-dir -r requirements.txt -c constraints-workshop.txt" in dockerfile
+    assert "uv pip install --system --no-cache -r requirements.txt -c constraints-workshop.txt" in dockerfile
     assert '"constraints-workshop.txt"' in deploy_script
-    assert '"requirements": runtime_requirements_file' in deploy_script
+    assert "prepare_runtime_requirements_file" in deploy_script
 
 
 def test_agent_runtime_requirements_file_omits_comments_and_blank_lines(tmp_path):
     import importlib.util
 
     root = Path(__file__).resolve().parents[1]
-    script_path = root / "scripts" / "deploy-agent-runtime.py"
+    script_path = root / "scripts" / "deploy-agentcore-runtime.py"
     spec = importlib.util.spec_from_file_location("deploy_agent_runtime", script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -469,8 +467,8 @@ def test_agent_runtime_requirements_file_omits_comments_and_blank_lines(tmp_path
                 "# Workshop constraints.",
                 "",
                 "  # indented comment",
-                "google-adk==1.34.0",
-                "google-cloud-aiplatform==1.153.1",
+                "boto3>=1.39.8",
+                "bedrock-agentcore[strands-agents]>=0.1.0",
             ]
         )
         + "\n",
@@ -480,8 +478,8 @@ def test_agent_runtime_requirements_file_omits_comments_and_blank_lines(tmp_path
     prepared = Path(module.prepare_runtime_requirements_file(str(source), tmp_path / "out"))
 
     assert prepared.read_text(encoding="utf-8") == (
-        "google-adk==1.34.0\n"
-        "google-cloud-aiplatform==1.153.1\n"
+        "boto3>=1.39.8\n"
+        "bedrock-agentcore[strands-agents]>=0.1.0\n"
     )
 
 
@@ -489,14 +487,14 @@ def test_user_facing_error_message_mapping():
     from web.main import _display_error
 
     model_error = _display_error(
-        RuntimeError("Publisher Model projects/demo/locations/us-central1/models/gemini-3.5-flash was not found")
+        RuntimeError("model amazon.nova-canvas-v1:0 returned 404")
     )
-    signed_url_error = _display_error(RuntimeError("signBlob permission denied"))
+    signed_url_error = _display_error(RuntimeError("S3 AccessDenied while creating presigned URL"))
     empty_error = _display_error(AssertionError())
 
-    assert "Gemini model が見つかりません" in model_error
+    assert "Bedrock model が見つかりません" in model_error
     assert "技術詳細:" in model_error
-    assert "signed URL 生成権限" in signed_url_error
+    assert "presigned URL 生成" in signed_url_error
     assert "AssertionError" in empty_error
 
 
@@ -508,7 +506,7 @@ def test_slow_job_message_after_threshold():
     job.started_at = job.started_at - timedelta(seconds=241)
 
     assert job.is_slow is True
-    assert "Agent Runtime logs" in job.slow_message
+    assert "AgentCore Runtime logs" in job.slow_message
 
 
 def test_runtime_contract_round_trip():
@@ -522,7 +520,7 @@ def test_runtime_contract_round_trip():
         summary_lines=["a", "b", "c"],
         key_points=["p1", "p2", "p3", "p4"],
         article_text="body",
-        text_backend="gemini:test",
+        text_backend="bedrock:test",
         progress=[ProgressStep("done", "done", "ok")],
     )
 
@@ -601,27 +599,24 @@ def test_runtime_client_parses_text_response_event():
 
 def test_runtime_operation_sync_accepts_text_part_contract():
     from web.agent_client import RuntimeAgentClient
+    from io import BytesIO
 
-    class RemoteAgent:
-        def stream_query(self, user_id: str, message: str):
-            yield {
-                "author": "graphic_recording_runtime_workflow",
-                "content": {
-                    "parts": [
-                        {
-                            "text": (
-                                '{"operation":"summarize_url","summary":{'
-                                '"session_id":"s1","url":"https://example.com","title":"Title",'
-                                '"summary_lines":["a","b","c"],"key_points":["p1"],'
-                                '"article_text":"body","text_backend":"runtime","progress":[]}}'
-                            )
-                        }
-                    ]
-                },
+    class AgentCoreClient:
+        def invoke_agent_runtime(self, **_kwargs):
+            return {
+                "body": BytesIO(
+                    (
+                        '{"operation":"summarize_url","summary":{'
+                        '"session_id":"s1","url":"https://example.com","title":"Title",'
+                        '"summary_lines":["a","b","c"],"key_points":["p1"],'
+                        '"article_text":"body","text_backend":"runtime","progress":[]}}'
+                    ).encode("utf-8")
+                )
             }
 
+    os.environ["AGENTCORE_RUNTIME_ARN"] = "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/demo"
     response = RuntimeAgentClient()._run_runtime_operation_sync(
-        RemoteAgent(),
+        AgentCoreClient(),
         {"operation": "summarize_url"},
     )
 
@@ -629,51 +624,22 @@ def test_runtime_operation_sync_accepts_text_part_contract():
     assert response.summary.title == "Title"
 
 
-def test_runtime_agent_returns_error_contract_for_bad_payload(monkeypatch):
+def test_agentcore_entrypoint_returns_error_contract_for_bad_payload(monkeypatch):
     import asyncio
-    from types import SimpleNamespace
 
-    from agent import adk_agent
+    from agent import agentcore_entrypoint
     from agent.runtime_contract import RuntimeWorkflowResponse
 
-    class FakeEvent:
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
+    async def fake_dispatch(_payload):
+        raise ValueError("bad payload")
 
-    class FakePart:
-        def __init__(self, text: str):
-            self.text = text
+    monkeypatch.setattr(agentcore_entrypoint, "dispatch_agentcore_payload", fake_dispatch)
 
-    class FakeContent:
-        def __init__(self, role: str, parts: list):
-            self.role = role
-            self.parts = parts
+    result = asyncio.run(agentcore_entrypoint.invoke({"operation": "summarize_url"}))
+    response = RuntimeWorkflowResponse.model_validate(result)
 
-    monkeypatch.setattr(adk_agent, "Event", FakeEvent)
-    monkeypatch.setattr(adk_agent, "types", SimpleNamespace(Content=FakeContent, Part=FakePart))
-
-    try:
-        runtime_agent = adk_agent.RuntimeWorkflowAgent(
-            name="runtime",
-            description="runtime test",
-        )
-    except TypeError:
-        runtime_agent = adk_agent.RuntimeWorkflowAgent()
-        runtime_agent.name = "runtime"
-    ctx = SimpleNamespace(
-        invocation_id="invocation-1",
-        branch=None,
-        user_content=SimpleNamespace(parts=[SimpleNamespace(text="{bad json")]),
-    )
-
-    async def collect_events():
-        return [event async for event in runtime_agent._run_async_impl(ctx)]
-
-    events = asyncio.run(collect_events())
-    response = RuntimeWorkflowResponse.model_validate_json(events[0].content.parts[0].text)
-
-    assert response.operation == "unknown"
-    assert "JSONDecodeError" in response.error
+    assert response.operation == "summarize_url"
+    assert "ValueError" in response.error
 
 
 def test_runtime_dispatcher_calls_summary_workflow_directly(monkeypatch):
@@ -708,17 +674,9 @@ def test_runtime_dispatcher_calls_summary_workflow_directly(monkeypatch):
 
 
 def test_runtime_payload_parser_reads_user_message_json():
-    from types import SimpleNamespace
+    from agent.strands_agent import runtime_payload_from_event
 
-    from agent.adk_agent import _runtime_payload_from_context
-
-    ctx = SimpleNamespace(
-        user_content=SimpleNamespace(
-            parts=[SimpleNamespace(text='{"operation":"summarize_url","url":"https://example.com"}')]
-        )
-    )
-
-    assert _runtime_payload_from_context(ctx) == {
+    assert runtime_payload_from_event('{"operation":"summarize_url","url":"https://example.com"}') == {
         "operation": "summarize_url",
         "url": "https://example.com",
     }
@@ -734,33 +692,44 @@ def test_article_fetch_size_limit_helpers(monkeypatch):
     monkeypatch.setenv("ARTICLE_FETCH_MAX_BYTES", "not-a-number")
     assert article_fetch_max_bytes() == 2_000_000
 
-    monkeypatch.setenv("GCS_SIGNED_URL_TTL_SECONDS", "120")
+    monkeypatch.setenv("S3_PRESIGNED_URL_TTL_SECONDS", "120")
     assert signed_artifact_url_ttl_seconds() == 120
 
-    monkeypatch.setenv("GCS_SIGNED_URL_TTL_SECONDS", "bad")
+    monkeypatch.setenv("S3_PRESIGNED_URL_TTL_SECONDS", "bad")
     assert signed_artifact_url_ttl_seconds() == 28800
 
 
-def test_signed_url_credentials_uses_explicit_signing_service_account(monkeypatch):
+def test_s3_upload_returns_presigned_url(monkeypatch, tmp_path):
     from agent import tools
+    import asyncio
 
-    class Credentials:
-        token = "token"
+    calls = {}
 
-        def refresh(self, _request):
-            self.token = "fresh-token"
+    class S3Client:
+        def upload_file(self, filename, bucket, key, ExtraArgs):
+            calls["upload"] = (filename, bucket, key, ExtraArgs)
 
-    monkeypatch.setenv("GCS_SIGNING_SERVICE_ACCOUNT", "runtime@example.iam.gserviceaccount.com")
-    monkeypatch.setattr(tools, "google_auth_default_for_test", None, raising=False)
+        def generate_presigned_url(self, operation, Params, ExpiresIn):
+            calls["presign"] = (operation, Params, ExpiresIn)
+            return "https://signed.example/artifact"
 
-    import google.auth
+    class Boto3:
+        @staticmethod
+        def client(service):
+            assert service == "s3"
+            return S3Client()
 
-    monkeypatch.setattr(google.auth, "default", lambda scopes: (Credentials(), "project"))
+    artifact = tmp_path / "a.svg"
+    artifact.write_text("<svg/>", encoding="utf-8")
+    monkeypatch.setenv("S3_BUCKET", "bucket")
+    monkeypatch.setenv("S3_ARTIFACT_PREFIX", "artifacts")
+    monkeypatch.setitem(sys.modules, "boto3", Boto3)
 
-    credentials, service_account_email = tools._signed_url_credentials()
+    url = asyncio.run(tools._upload_artifact_to_s3(artifact, "image/svg+xml"))
 
-    assert credentials.token == "fresh-token"
-    assert service_account_email == "runtime@example.iam.gserviceaccount.com"
+    assert url == "https://signed.example/artifact"
+    assert calls["upload"][1] == "bucket"
+    assert calls["upload"][2] == "artifacts/a.svg"
 
 
 def test_read_limited_response_rejects_oversized_body():

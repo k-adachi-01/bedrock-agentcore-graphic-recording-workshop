@@ -32,11 +32,11 @@ def assert_auth_config() -> None:
         return
     if not auth_password():
         raise RuntimeError(
-            "APP_PASSWORD is required when running on Cloud Run or APP_ENV=production."
+            "APP_PASSWORD is required when running on App Runner or APP_ENV=production."
         )
     if not auth_secret_key():
         raise RuntimeError(
-            "APP_SECRET_KEY is required when running on Cloud Run or APP_ENV=production."
+            "APP_SECRET_KEY is required when running on App Runner or APP_ENV=production."
         )
 
 

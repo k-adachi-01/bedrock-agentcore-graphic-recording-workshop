@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import asyncio
+import hashlib
 import time
 from typing import Optional
 from typing import Protocol
@@ -16,7 +17,7 @@ from agent.actions import (
     regenerate_graphic_recording,
     summarize_url,
 )
-from agent.adk_agent import run_narration_turn
+from agent.strands_agent import run_narration_turn
 from agent.models import GraphicResult, SummaryResult
 from agent.models import ProgressStep
 from agent.runtime_contract import RuntimeSummaryPayload, RuntimeWorkflowResponse
@@ -73,20 +74,20 @@ class LocalAgentClient:
 
 
 class RuntimeAgentClient:
-    """Calls the deployed Agent Runtime workflow and validates its JSON contract."""
+    """Calls the deployed AgentCore Runtime workflow and validates its JSON contract."""
 
     def __init__(self) -> None:
-        self._remote_agent = None
+        self._agentcore_client = None
 
     async def summarize_url(
         self,
         url: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> SummaryResult:
-        await _emit_runtime_status("Agent Runtime に要約 workflow を送信", on_progress)
+        await _emit_runtime_status("AgentCore Runtime に要約 workflow を送信", on_progress)
         response = await self._run_runtime_operation({"operation": "summarize_url", "url": url})
         if not response.summary:
-            raise RuntimeError("Agent Runtime response did not include summary")
+            raise RuntimeError("AgentCore Runtime response did not include summary")
         return response.summary.to_result()
 
     async def generate_graphic_recording(
@@ -94,7 +95,7 @@ class RuntimeAgentClient:
         summary: SummaryResult,
         on_progress: Optional[ProgressCallback] = None,
     ) -> GraphicResult:
-        await _emit_runtime_status("Agent Runtime にグラレコ workflow を送信", on_progress)
+        await _emit_runtime_status("AgentCore Runtime にグラレコ workflow を送信", on_progress)
         response = await self._run_runtime_operation(
             {
                 "operation": "generate_graphic",
@@ -102,7 +103,7 @@ class RuntimeAgentClient:
             }
         )
         if not response.graphic:
-            raise RuntimeError("Agent Runtime response did not include graphic")
+            raise RuntimeError("AgentCore Runtime response did not include graphic")
         return response.graphic.to_result()
 
     async def regenerate_graphic_recording(
@@ -111,7 +112,7 @@ class RuntimeAgentClient:
         feedback: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> GraphicResult:
-        await _emit_runtime_status("Agent Runtime に再生成 workflow を送信", on_progress)
+        await _emit_runtime_status("AgentCore Runtime に再生成 workflow を送信", on_progress)
         response = await self._run_runtime_operation(
             {
                 "operation": "regenerate_graphic",
@@ -120,90 +121,66 @@ class RuntimeAgentClient:
             }
         )
         if not response.graphic:
-            raise RuntimeError("Agent Runtime response did not include graphic")
+            raise RuntimeError("AgentCore Runtime response did not include graphic")
         return response.graphic.to_result()
 
     async def _run_runtime_operation(self, payload: dict) -> RuntimeWorkflowResponse:
-        remote_agent = self._get_remote_agent()
-        return await asyncio.to_thread(self._run_runtime_operation_sync, remote_agent, payload)
+        client = self._get_agentcore_client()
+        return await asyncio.to_thread(self._run_runtime_operation_sync, client, payload)
 
-    def _run_runtime_operation_sync(self, remote_agent, payload: dict) -> RuntimeWorkflowResponse:
+    def _run_runtime_operation_sync(self, client, payload: dict) -> RuntimeWorkflowResponse:
         started = time.perf_counter()
         operation = str(payload.get("operation", "unknown"))
-        runtime_response = None
-        final_text = ""
-        event_count = 0
-        first_event_seconds = None
-        event_shapes: list[str] = []
-        for event in remote_agent.stream_query(
-            user_id=os.getenv("AGENT_RUNTIME_USER_ID", "workshop-user"),
-            message=json.dumps(payload, ensure_ascii=False),
-        ):
-            event_count += 1
-            if first_event_seconds is None:
-                first_event_seconds = time.perf_counter() - started
-            event_payload = _event_to_plain_data(event)
-            if len(event_shapes) < 8:
-                event_shapes.append(_event_shape(event_payload))
-            candidate = _runtime_response_from_event(event_payload)
-            if candidate:
-                runtime_response = candidate
-            final_text = _last_text_from_event(event_payload) or final_text
+        runtime_arn = _agentcore_runtime_arn()
+        response = client.invoke_agent_runtime(
+            agentRuntimeArn=runtime_arn,
+            runtimeSessionId=_runtime_session_id(payload),
+            payload=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            contentType="application/json",
+            accept="application/json",
+        )
+        runtime_response = _runtime_response_from_agentcore_response(response)
 
         elapsed_seconds = time.perf_counter() - started
         logger.info(
-            "runtime_call_duration operation=%s event_count=%s first_event_seconds=%.3f elapsed_seconds=%.3f",
+            "runtime_call_duration operation=%s elapsed_seconds=%.3f",
             operation,
-            event_count,
-            first_event_seconds if first_event_seconds is not None else -1,
             elapsed_seconds,
         )
         if runtime_response:
             return _validated_runtime_response(runtime_response)
-        if final_text:
-            return _validated_runtime_response(_runtime_response_from_text(final_text))
-        logger.warning(
-            "runtime_no_workflow_response operation=%s event_count=%s event_shapes=%s",
-            operation,
-            event_count,
-            event_shapes,
-        )
-        raise RuntimeError("Agent Runtime returned no workflow response")
+        raise RuntimeError("AgentCore Runtime returned no workflow response")
 
-    def _get_remote_agent(self):
-        if self._remote_agent is not None:
-            return self._remote_agent
+    def _get_agentcore_client(self):
+        if self._agentcore_client is not None:
+            return self._agentcore_client
 
-        resource_name = os.getenv("AGENT_RUNTIME_RESOURCE_NAME")
-        if not resource_name:
-            raise RuntimeError("Set AGENT_RUNTIME_RESOURCE_NAME when AGENT_BACKEND=runtime.")
-        if _looks_like_placeholder(resource_name):
+        runtime_arn = _agentcore_runtime_arn()
+        if _looks_like_placeholder(runtime_arn):
             raise RuntimeError(
-                "AGENT_RUNTIME_RESOURCE_NAME still contains a placeholder. "
-                "Set it to the exact projects/.../locations/.../reasoningEngines/... value "
-                "printed by scripts/deploy-agent-runtime.py."
+                "AGENTCORE_RUNTIME_ARN still contains a placeholder. "
+                "Set it to the exact runtime ARN printed by the AgentCore deploy command."
             )
 
-        import vertexai
+        import boto3
 
-        client = vertexai.Client(
-            project=os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID"),
-            location=os.getenv("AGENT_RUNTIME_LOCATION") or _location_from_resource_name(resource_name),
+        self._agentcore_client = boto3.client(
+            "bedrock-agentcore",
+            region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or _region_from_arn(runtime_arn),
         )
-        self._remote_agent = client.agent_engines.get(name=resource_name)
-        return self._remote_agent
+        return self._agentcore_client
 
 
-class AdkAgentClient(LocalAgentClient):
-    """Runs an ADK LlmAgent narration turn before the local tool pipeline."""
+class StrandsAgentClient(LocalAgentClient):
+    """Runs a Strands narration turn before the local tool pipeline."""
 
     async def summarize_url(
         self,
         url: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> SummaryResult:
-        prefix = await self._adk_prefix(
-            "ADK LlmAgent が summarize_url action を解説",
+        prefix = await self._strands_prefix(
+            "Strands Agent が summarize_url action を解説",
             f"URL {url} を要約するため、アプリケーションが次に進める tool/action を解説してください。",
             on_progress,
         )
@@ -222,8 +199,8 @@ class AdkAgentClient(LocalAgentClient):
         summary: SummaryResult,
         on_progress: Optional[ProgressCallback] = None,
     ) -> GraphicResult:
-        prefix = await self._adk_prefix(
-            "ADK LlmAgent が generate_graphic_recording action を解説",
+        prefix = await self._strands_prefix(
+            "Strands Agent が generate_graphic_recording action を解説",
             "確認済み要約からグラレコ構成案と画像 artifact を生成する手順を解説してください。",
             on_progress,
         )
@@ -242,8 +219,8 @@ class AdkAgentClient(LocalAgentClient):
         feedback: str,
         on_progress: Optional[ProgressCallback] = None,
     ) -> GraphicResult:
-        prefix = await self._adk_prefix(
-            "ADK LlmAgent が regenerate_graphic_recording action を解説",
+        prefix = await self._strands_prefix(
+            "Strands Agent が regenerate_graphic_recording action を解説",
             f"ユーザーフィードバック「{feedback}」を反映して再生成する手順を解説してください。",
             on_progress,
         )
@@ -256,7 +233,7 @@ class AdkAgentClient(LocalAgentClient):
         graphic.progress = prefix + graphic.progress
         return graphic
 
-    async def _adk_prefix(
+    async def _strands_prefix(
         self,
         label: str,
         prompt: str,
@@ -269,7 +246,7 @@ class AdkAgentClient(LocalAgentClient):
         try:
             detail = await run_narration_turn(prompt, session_id=uuid4().hex)
         except Exception as exc:
-            detail = f"adk:fallback:{str(exc)[:120]}"
+            detail = f"strands:fallback:{str(exc)[:120]}"
 
         done = [ProgressStep(label, "done", detail)]
         if on_progress:
@@ -279,8 +256,8 @@ class AdkAgentClient(LocalAgentClient):
 
 def build_agent_client() -> AgentClient:
     backend = os.getenv("AGENT_BACKEND", "local").lower()
-    if backend == "adk":
-        return AdkAgentClient()
+    if backend == "strands":
+        return StrandsAgentClient()
     if backend == "runtime":
         return RuntimeAgentClient()
     return LocalAgentClient()
@@ -294,20 +271,36 @@ async def _emit_runtime_status(
         await on_progress([ProgressStep(label, "running")])
 
 
-def _location_from_resource_name(resource_name: str) -> str:
-    match = re.search(r"/locations/([^/]+)/", resource_name)
-    if not match:
-        return "us-central1"
-    return match.group(1)
+def _agentcore_runtime_arn() -> str:
+    runtime_arn = os.getenv("AGENTCORE_RUNTIME_ARN")
+    if not runtime_arn:
+        raise RuntimeError("Set AGENTCORE_RUNTIME_ARN when AGENT_BACKEND=runtime.")
+    return runtime_arn
+
+
+def _region_from_arn(arn: str) -> str:
+    parts = arn.split(":")
+    return parts[3] if len(parts) > 3 and parts[3] else "us-east-1"
+
+
+def _runtime_session_id(payload: dict) -> str:
+    seed = (
+        str(payload.get("summary", {}).get("session_id") if isinstance(payload.get("summary"), dict) else "")
+        or str(payload.get("url") or "")
+        or json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    )
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return f"workshop-session-{digest}"[:64]
 
 
 def _looks_like_placeholder(value: str) -> bool:
     placeholders = (
-        "PROJECT_NUMBER",
-        "RESOURCE_ID",
-        "SERVICE_AGENT_EMAIL_FROM_EFFECTIVE_IDENTITY",
-        "YOUR_PROJECT_ID",
+        "ACCOUNT_ID",
+        "RUNTIME_ID",
+        "YOUR_RUNTIME_ARN",
+        "YOUR_ACCOUNT_ID",
         "CHANGE_ME",
+        "PASTE_HERE",
     )
     return any(placeholder in value for placeholder in placeholders)
 
@@ -338,6 +331,39 @@ def _runtime_response_from_event(event: dict) -> Optional[RuntimeWorkflowRespons
                 return _runtime_response_from_text(text)
             except Exception:
                 continue
+    return None
+
+
+def _runtime_response_from_agentcore_response(response: dict) -> Optional[RuntimeWorkflowResponse]:
+    for key in ("response", "output", "payload", "body"):
+        value = response.get(key)
+        parsed = _runtime_response_from_agentcore_value(value)
+        if parsed:
+            return parsed
+    return None
+
+
+def _runtime_response_from_agentcore_value(value) -> Optional[RuntimeWorkflowResponse]:
+    if value is None:
+        return None
+    if isinstance(value, RuntimeWorkflowResponse):
+        return value
+    if isinstance(value, dict):
+        try:
+            return RuntimeWorkflowResponse.model_validate(value)
+        except Exception:
+            for nested in value.values():
+                parsed = _runtime_response_from_agentcore_value(nested)
+                if parsed:
+                    return parsed
+            return None
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    elif hasattr(value, "read"):
+        raw = value.read()
+        value = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    if isinstance(value, str) and value.strip():
+        return _runtime_response_from_text(value)
     return None
 
 

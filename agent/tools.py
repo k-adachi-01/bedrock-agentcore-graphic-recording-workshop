@@ -5,13 +5,13 @@ import base64
 import gzip
 import html
 import ipaddress
+import json
 import logging
 import os
 import re
 import socket
 import zlib
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 from typing import Literal, Optional, Union
 from urllib.parse import urljoin, urlparse
@@ -29,8 +29,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ARTICLE_FETCH_MAX_BYTES = 2_000_000
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-_GENAI_CLIENT = None
-
 _DEFAULT_PLAN_ITEMS = [
     "上部に記事タイトルを短く配置",
     "左側に 3 行要約を大きく配置",
@@ -80,11 +78,11 @@ def is_mock_mode() -> bool:
 
 
 def text_model_name() -> str:
-    return os.getenv("GEMINI_TEXT_MODEL", "gemini-3.5-flash")
+    return os.getenv("BEDROCK_TEXT_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
 
 
 def image_model_name() -> str:
-    return os.getenv("GEMINI_IMAGE_MODEL", "gemini-3-pro-image-preview")
+    return os.getenv("BEDROCK_IMAGE_MODEL_ID", "")
 
 
 async def fetch_article(url: str) -> dict[str, str]:
@@ -98,15 +96,15 @@ async def fetch_article(url: str) -> dict[str, str]:
     """
     if is_mock_mode():
         host = urlparse(url).netloc or "example.com"
-        title = f"{host} の記事から学ぶ Agent Runtime 活用"
+        title = f"{host} の記事から学ぶ AgentCore Runtime 活用"
         body = (
             "この記事は、企業内の業務アプリケーションに AI Agent を組み込む方法を紹介しています。"
             "Agent は URL から情報を取得し、要約、構造化、成果物生成までを一連の action として実行します。"
-            "Google ADK を使うと tool の責務を分けながら Agent の振る舞いを定義でき、"
-            "Agent Runtime に配置することで Web App から安定して呼び出せます。"
-            "Cloud Run は FastAPI の Web フロントエンドを動かし、Cloud Storage は生成画像や SVG を保存します。"
+            "Strands Agents を使うと tool の責務を分けながら Agent の振る舞いを定義でき、"
+            "Bedrock AgentCore Runtime に配置することで Web App から安定して呼び出せます。"
+            "AWS App Runner は FastAPI の Web フロントエンドを動かし、S3 は生成画像や SVG を保存します。"
             "デモではまず mock mode で外部 API に依存せず UX と処理順序を確認し、"
-            "その後 Gemini text model と Nano Banana Pro / Gemini image model に差し替えていきます。"
+            "その後 Bedrock text model と image model に差し替えていきます。"
         )
         return {"title": title, "text": body}
 
@@ -130,14 +128,14 @@ async def summarize_article(title: str, article_text: str) -> dict[str, list[str
         return {
             "summary_lines": [
                 "Agent が記事取得から要約、画像生成までを一連の workflow として進めます。",
-                "ADK では fetch / summarize / plan / render などの tool を分けて実装します。",
+                "Strands では fetch / summarize / plan / render などの tool を分けて実装します。",
                 "Phase 1 は mock mode と fallback SVG により、外部 API なしでデモ体験を確認します。",
             ],
             "key_points": [
                 "記事取得、要約、構成案作成、画像生成を一つの流れとして扱い、利用者は URL を入力するだけで結果まで確認できます。",
-                "ADK の tool を小さく分けることで、記事取得、要約、描画、保存といった責務を追いやすくしています。",
+                "Strands の tool を小さく分けることで、記事取得、要約、描画、保存といった責務を追いやすくしています。",
                 "mock mode と fallback SVG により、外部 API が使えない場面でも画面遷移と体験を先に確認できます。",
-                "生成画像は artifact として保存され、あとから Cloud Storage や signed URL を使う構成へ広げられます。",
+                "生成画像は artifact として保存され、あとから S3 や presigned URL を使う構成へ広げられます。",
             ],
             "backend": "mock",
         }
@@ -165,13 +163,13 @@ async def summarize_article(title: str, article_text: str) -> dict[str, list[str
     try:
         summary = await _generate_structured_content(prompt, ArticleSummary)
     except Exception as exc:
-        logger.warning("Gemini summarize failed, falling back to heuristic: %s", exc)
+        logger.warning("Bedrock summarize failed, falling back to heuristic: %s", exc)
         return _heuristic_summary(title, article_text, reason=str(exc))
 
     return {
         "summary_lines": summary.summary_lines[:3],
         "key_points": summary.key_points[:6],
-        "backend": f"gemini:{text_model_name()}",
+        "backend": f"bedrock:{text_model_name()}",
     }
 
 
@@ -217,7 +215,7 @@ async def decide_style(
     try:
         return await _generate_structured_content(prompt, StyleDecision)
     except Exception as exc:
-        logger.warning("Gemini style decision failed, falling back to heuristic: %s", exc)
+        logger.warning("Bedrock style decision failed, falling back to heuristic: %s", exc)
         return _heuristic_style_decision(
             summary_lines,
             key_points,
@@ -293,7 +291,7 @@ async def create_visual_plan_for_style(
         visual_plan = await _generate_structured_content(prompt, VisualPlan)
         return visual_plan.plan_items[:6]
     except Exception as exc:
-        logger.warning("Gemini visual plan failed, falling back to default plan: %s", exc)
+        logger.warning("Bedrock visual plan failed, falling back to default plan: %s", exc)
         plan = _default_plan_items_for_style(style)
         if feedback.strip():
             plan.append(f"フィードバック反映: {feedback.strip()[:80]}")
@@ -331,7 +329,7 @@ async def generate_image_artifact(
     summary_lines: Optional[list[str]] = None,
     key_points: Optional[list[str]] = None,
 ) -> GeneratedImage:
-    """Generate a graphic recording image with Gemini image model for artifact storage.
+    """Generate a graphic recording image with a Bedrock image model for artifact storage.
 
     Args:
         visual_plan: Composition instructions for the image model.
@@ -344,9 +342,13 @@ async def generate_image_artifact(
     """
     if is_mock_mode():
         return GeneratedImage(b"", "", "fallback-svg:mock-mode")
-    if not has_gemini_credentials():
+    if not image_model_name():
+        message = "BEDROCK_IMAGE_MODEL_ID is not configured"
+        logger.warning("Bedrock image generation skipped: %s", message)
+        return GeneratedImage(b"", "", f"fallback-svg:{message}")
+    if not has_bedrock_credentials():
         message = "credentials are not configured"
-        logger.warning("Gemini image generation skipped: %s", message)
+        logger.warning("Bedrock image generation skipped: %s", message)
         return GeneratedImage(b"", "", f"fallback-svg:{message}")
 
     allowed_summary = summary_lines or []
@@ -390,18 +392,18 @@ async def generate_image_artifact(
     try:
         image_bytes, mime_type = await _generate_image_data(prompt)
     except Exception as exc:
-        logger.warning("Gemini image generation failed, falling back to SVG: %s", exc)
+        logger.warning("Bedrock image generation failed, falling back to SVG: %s", exc)
         return GeneratedImage(b"", "", f"fallback-svg:{str(exc)[:120]}")
 
     if not image_bytes:
         message = "no image parts returned"
-        logger.warning("Gemini image generation returned %s", message)
+        logger.warning("Bedrock image generation returned %s", message)
         return GeneratedImage(b"", "", f"fallback-svg:{message}")
 
     return GeneratedImage(
         image_bytes,
         mime_type,
-        f"gemini:{display_model_name(image_model_name())}",
+        f"bedrock:{display_model_name(image_model_name())}",
     )
 
 
@@ -468,7 +470,7 @@ async def render_svg(
 
 
 async def save_artifact(session_id: str, svg: str) -> str:
-    """Save a generated SVG artifact locally and optionally mirror it to Cloud Storage.
+    """Save a generated SVG artifact locally and optionally mirror it to S3.
 
     Args:
         session_id: Stable session identifier used as the artifact filename.
@@ -487,17 +489,17 @@ async def save_artifact_with_url(session_id: str, svg: str) -> tuple[str, str]:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{session_id}.svg"
     path.write_text(svg, encoding="utf-8")
-    signed_url = await _upload_artifact_to_gcs(path, "image/svg+xml")
+    signed_url = await _upload_artifact_to_s3(path, "image/svg+xml")
     return str(path), signed_url
 
 
 async def save_binary_artifact(session_id: str, data: bytes, mime_type: str) -> str:
-    """Save a generated binary artifact locally and optionally mirror it to Cloud Storage.
+    """Save a generated binary artifact locally and optionally mirror it to S3.
 
     Args:
         session_id: Stable session identifier used as the artifact filename.
         data: Binary artifact bytes.
-        mime_type: MIME type for file extension and Cloud Storage metadata.
+        mime_type: MIME type for file extension and S3 metadata.
 
     Returns:
         Local artifact path.
@@ -516,7 +518,7 @@ async def save_binary_artifact_with_url(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = artifact_dir / f"{session_id}{_extension_for_mime_type(mime_type)}"
     path.write_bytes(data)
-    signed_url = await _upload_artifact_to_gcs(path, mime_type)
+    signed_url = await _upload_artifact_to_s3(path, mime_type)
     return str(path), signed_url
 
 
@@ -524,70 +526,42 @@ def artifact_url_for_path(artifact_path: str) -> str:
     return f"/artifacts/{Path(artifact_path).name}"
 
 
-async def _upload_artifact_to_gcs(path: Path, content_type: str) -> str:
-    bucket_name = os.getenv("GCS_BUCKET")
+async def _upload_artifact_to_s3(path: Path, content_type: str) -> str:
+    bucket_name = os.getenv("S3_BUCKET")
     if not bucket_name:
         return ""
 
     def upload() -> str:
-        from google.cloud import storage
+        import boto3
 
-        prefix = os.getenv("GCS_ARTIFACT_PREFIX", "artifacts").strip("/")
-        object_name = f"{prefix}/{path.name}" if prefix else path.name
-        client = storage.Client()
-        blob = client.bucket(bucket_name).blob(object_name)
-        blob.upload_from_filename(str(path), content_type=content_type)
-        return _generate_signed_artifact_url(blob)
+        prefix = os.getenv("S3_ARTIFACT_PREFIX", "artifacts").strip("/")
+        object_key = f"{prefix}/{path.name}" if prefix else path.name
+        client = boto3.client("s3")
+        client.upload_file(
+            str(path),
+            bucket_name,
+            object_key,
+            ExtraArgs={"ContentType": content_type},
+        )
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": object_key},
+            ExpiresIn=signed_artifact_url_ttl_seconds(),
+        )
 
     try:
         return await asyncio.to_thread(upload)
     except Exception as exc:
-        logger.warning("Cloud Storage artifact upload failed: %s", exc)
+        logger.warning("S3 artifact upload failed: %s", exc)
         return ""
 
 
-def _generate_signed_artifact_url(blob) -> str:
-    ttl_seconds = signed_artifact_url_ttl_seconds()
-    credentials, service_account_email = _signed_url_credentials()
-    return blob.generate_signed_url(
-        version="v4",
-        expiration=timedelta(seconds=ttl_seconds),
-        method="GET",
-        credentials=credentials,
-        service_account_email=service_account_email,
-        access_token=credentials.token,
-    )
-
-
 def signed_artifact_url_ttl_seconds() -> int:
-    value = os.getenv("GCS_SIGNED_URL_TTL_SECONDS", "28800")
+    value = os.getenv("S3_PRESIGNED_URL_TTL_SECONDS", "28800")
     try:
         return max(60, int(value))
     except ValueError:
         return 28800
-
-
-def _signed_url_credentials():
-    import google.auth
-    from google.auth.transport.requests import Request
-
-    credentials, _project = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    auth_request = Request()
-    credentials.refresh(auth_request)
-
-    service_account_email = os.getenv("GCS_SIGNING_SERVICE_ACCOUNT") or getattr(
-        credentials,
-        "service_account_email",
-        "",
-    )
-    if not service_account_email:
-        raise RuntimeError(
-            "Could not determine the service account email for signed URL generation. "
-            "Set GCS_SIGNING_SERVICE_ACCOUNT to the Agent Runtime service account."
-        )
-    return credentials, service_account_email
 
 
 async def _fetch_public_url(url: str) -> httpx.Response:
@@ -595,7 +569,7 @@ async def _fetch_public_url(url: str) -> httpx.Response:
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Encoding": "identity",
-        "User-Agent": "GeminiEnterpriseAgentWorkshop/1.0",
+        "User-Agent": "BedrockAgentCoreWorkshop/1.0",
     }
     async with httpx.AsyncClient(follow_redirects=False, timeout=15, headers=headers) as client:
         for _ in range(5):
@@ -675,81 +649,140 @@ async def _extract_article_text(raw_html: str, url: str) -> tuple[str, str]:
 
 
 async def _generate_structured_content(prompt: str, schema_model):
-    if not has_gemini_credentials():
-        raise RuntimeError(
-            "GEMINI_API_KEY, GOOGLE_API_KEY, or Vertex AI Gemini environment settings are required"
-        )
+    if not has_bedrock_credentials():
+        raise RuntimeError("AWS credentials for Bedrock are required")
 
-    async_client = _get_genai_client().aio
-    response = await _call_with_retries(
-        lambda: async_client.models.generate_content(
-            model=text_model_name(),
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": schema_model,
-            },
-        ),
-        operation="gemini-structured-content",
+    schema = schema_model.model_json_schema()
+    structured_prompt = f"""{prompt}
+
+Return only JSON that conforms to this JSON Schema:
+{json.dumps(schema, ensure_ascii=False)}
+"""
+    response_text = await _call_with_retries(
+        lambda: _invoke_bedrock_text_model(structured_prompt),
+        operation="bedrock-structured-content",
     )
-    if response.parsed is not None:
-        return response.parsed
-    return schema_model.model_validate_json(response.text)
+    return schema_model.model_validate_json(_extract_json_object(response_text))
 
 
 async def _generate_image_data(prompt: str) -> tuple[bytes, str]:
-    from google.genai import types
-
-    async_client = _get_genai_client().aio
-    response = await _call_with_retries(
-        lambda: async_client.models.generate_content(
-            model=image_model_name(),
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=[types.Modality.TEXT, types.Modality.IMAGE],
-                candidate_count=1,
-            ),
-        ),
-        operation="gemini-image-generation",
+    return await _call_with_retries(
+        lambda: _invoke_bedrock_image_model(prompt),
+        operation="bedrock-image-generation",
     )
-    if not response.candidates:
-        return b"", "image/png"
-    parts = response.candidates[0].content.parts if response.candidates[0].content else []
-    for part in parts:
-        if part.inline_data and part.inline_data.data:
-            data = part.inline_data.data
-            if isinstance(data, str):
-                data = base64.b64decode(data)
-            return data, part.inline_data.mime_type or "image/png"
-    return b"", "image/png"
 
 
-def _get_genai_client():
-    global _GENAI_CLIENT
-    if _GENAI_CLIENT is None:
-        _GENAI_CLIENT = _build_genai_client()
-    return _GENAI_CLIENT
+async def _invoke_bedrock_text_model(prompt: str) -> str:
+    def invoke() -> str:
+        import boto3
+
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1",
+        )
+        response = client.invoke_model(
+            modelId=text_model_name(),
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(
+                {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 2048,
+                    "temperature": 0.2,
+                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+                }
+            ),
+        )
+        payload = _read_bedrock_body(response)
+        content = payload.get("content") or []
+        texts = [part.get("text", "") for part in content if isinstance(part, dict)]
+        return "\n".join(text for text in texts if text).strip()
+
+    return await asyncio.to_thread(invoke)
 
 
-def _build_genai_client():
-    from google import genai
+async def _invoke_bedrock_image_model(prompt: str) -> tuple[bytes, str]:
+    def invoke() -> tuple[bytes, str]:
+        import boto3
 
-    return genai.Client()
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1",
+        )
+        response = client.invoke_model(
+            modelId=image_model_name(),
+            contentType="application/json",
+            accept="application/json",
+            body=json.dumps(_bedrock_image_request(prompt)),
+        )
+        payload = _read_bedrock_body(response)
+        image_data = (
+            payload.get("images", [None])[0]
+            or payload.get("artifacts", [{}])[0].get("base64")
+            or payload.get("image")
+        )
+        if not image_data:
+            return b"", "image/png"
+        return base64.b64decode(image_data), "image/png"
+
+    return await asyncio.to_thread(invoke)
 
 
-def close_genai_client() -> None:
-    global _GENAI_CLIENT
-    if _GENAI_CLIENT is None:
-        return
-    close = getattr(_GENAI_CLIENT, "close", None)
-    if close:
-        close()
-    _GENAI_CLIENT = None
+def _bedrock_image_request(prompt: str) -> dict[str, object]:
+    model = image_model_name().lower()
+    if "stability" in model or "stable" in model:
+        return {
+            "text_prompts": [{"text": prompt}],
+            "cfg_scale": 8,
+            "height": 768,
+            "width": 1344,
+            "samples": 1,
+        }
+    return {
+        "taskType": "TEXT_IMAGE",
+        "textToImageParams": {"text": prompt},
+        "imageGenerationConfig": {
+            "numberOfImages": 1,
+            "height": 768,
+            "width": 1344,
+            "cfgScale": 8,
+        },
+    }
+
+
+def _read_bedrock_body(response: dict[str, object]) -> dict[str, object]:
+    body = response.get("body")
+    raw = body.read() if hasattr(body, "read") else body
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    if isinstance(raw, str):
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _extract_json_object(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        stripped = re.sub(r"^json\s*", "", stripped, flags=re.I).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        return stripped[start : end + 1]
+    return stripped
+
+
+def close_bedrock_client() -> None:
+    return None
 
 
 async def _call_with_retries(operation_factory, operation: str):
-    max_attempts = max(1, int(os.getenv("GEMINI_MAX_ATTEMPTS", "3")))
-    base_delay = max(0.1, float(os.getenv("GEMINI_RETRY_BASE_DELAY_SECONDS", "0.6")))
+    max_attempts = max(1, int(os.getenv("BEDROCK_MAX_ATTEMPTS", "3")))
+    base_delay = max(0.1, float(os.getenv("BEDROCK_RETRY_BASE_DELAY_SECONDS", "0.6")))
     last_error: Optional[Exception] = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -793,14 +826,14 @@ def _exception_status_code(exc: Exception) -> Optional[int]:
     return status_code if isinstance(status_code, int) else None
 
 
-def has_gemini_credentials() -> bool:
-    if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+def has_bedrock_credentials() -> bool:
+    if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
         return True
-    return _use_vertex_ai()
-
-
-def _use_vertex_ai() -> bool:
-    return os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in {"1", "true", "yes", "on"}
+    if os.getenv("AWS_PROFILE") or os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"):
+        return True
+    if os.getenv("AWS_WEB_IDENTITY_TOKEN_FILE") and os.getenv("AWS_ROLE_ARN"):
+        return True
+    return False
 
 
 def article_fetch_max_bytes() -> int:
@@ -812,8 +845,8 @@ def article_fetch_max_bytes() -> int:
 
 def display_model_name(model_name: str) -> str:
     labels = {
-        "gemini-2.5-flash-image": "gemini-2.5-flash-image (Nano Banana)",
-        "gemini-3-pro-image-preview": "gemini-3-pro-image-preview (Nano Banana Pro)",
+        "amazon.nova-canvas-v1:0": "amazon.nova-canvas-v1:0 (Nova Canvas)",
+        "stability.stable-image-core-v1:0": "stability.stable-image-core-v1:0 (Stable Image Core)",
     }
     return labels.get(model_name, model_name)
 

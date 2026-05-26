@@ -1,5 +1,6 @@
 .venv/
 .venv-*/
+node_modules/
 .python-version
 .pycache/
 .pytest_cache/

@@ -69,8 +69,8 @@ async def runtime_regenerate_graphic(summary: dict[str, Any], feedback: str = ""
 
 
 def _assert_runtime_artifact_store() -> None:
-    if not os.getenv("GCS_BUCKET"):
+    if not os.getenv("S3_BUCKET"):
         raise RuntimeError(
-            "GCS_BUCKET is required for Agent Runtime graphic generation because "
-            "Cloud Run cannot serve files from the Agent Runtime filesystem."
+            "S3_BUCKET is required for AgentCore Runtime graphic generation because "
+            "App Runner cannot serve files from the AgentCore Runtime filesystem."
         )

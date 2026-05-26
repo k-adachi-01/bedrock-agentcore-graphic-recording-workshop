@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent.models import GraphicResult, ProgressStep, SummaryResult
-from agent.tools import close_genai_client
+from agent.tools import close_bedrock_client
 from web.auth import (
     AUTH_COOKIE_NAME,
     assert_auth_config,
@@ -72,8 +72,8 @@ class AgentJob:
     @property
     def slow_message(self) -> str:
         if self.kind == "graphic":
-            return "画像生成が通常より長くかかっています。数分続く場合は Agent Runtime logs と Gemini image model の quota を確認してください。"
-        return "要約が通常より長くかかっています。数分続く場合は URL の本文取得可否と Agent Runtime logs を確認してください。"
+            return "画像生成が通常より長くかかっています。数分続く場合は AgentCore Runtime logs と Bedrock image model の quota を確認してください。"
+        return "要約が通常より長くかかっています。数分続く場合は URL の本文取得可否と AgentCore Runtime logs を確認してください。"
 
     @property
     def show_estimated_progress(self) -> bool:
@@ -85,15 +85,15 @@ class AgentJob:
             return []
         if self.kind == "graphic":
             milestones = [
-                (0, "要約を Agent Runtime に送信"),
+                (0, "要約を AgentCore Runtime に送信"),
                 (10, "Agent が style と構成案を判断"),
-                (30, "Gemini で画像生成を実行"),
-                (80, "Cloud Storage に成果物を保存"),
-                (105, "signed URL を準備して画面へ返却"),
+                (30, "Bedrock で画像生成を実行"),
+                (80, "S3 に成果物を保存"),
+                (105, "presigned URL を準備して画面へ返却"),
             ]
         else:
             milestones = [
-                (0, "Agent Runtime に要約 workflow を送信"),
+                (0, "AgentCore Runtime に要約 workflow を送信"),
                 (12, "記事本文を取得"),
                 (35, "3 行要約と重要ポイントを生成"),
                 (60, "JSON contract を検証して画面へ返却"),
@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI):
     assert_auth_config()
     agent_client = build_agent_client()
     yield
-    close_genai_client()
+    close_bedrock_client()
     agent_client = None
 
 
@@ -427,18 +427,18 @@ def _display_error(exc: Exception) -> str:
 
 def _friendly_error_message(message: str) -> str:
     normalized = message.lower()
-    if "project_number" in normalized or "resource_id" in normalized:
-        return "Agent Runtime の resource name に placeholder が残っています。AGENT_RUNTIME_RESOURCE_NAME を実際の projects/.../reasoningEngines/... に設定して Cloud Run を再 deploy してください。"
+    if "account_id" in normalized or "runtime_id" in normalized or "placeholder" in normalized:
+        return "AgentCore Runtime ARN に placeholder が残っています。AGENTCORE_RUNTIME_ARN を実際の ARN に設定して App Runner を再 deploy してください。"
     if "publisher model" in normalized or ("model" in normalized and "404" in normalized):
-        return "Gemini model が見つかりません。model ID と GOOGLE_CLOUD_LOCATION=global の設定を確認してください。"
-    if "signed url" in normalized or "signblob" in normalized or "serviceaccounttokencreator" in normalized:
-        return "画像の signed URL 生成権限が不足しています。configure-runtime-iam.sh を再実行してください。"
+        return "Bedrock model が見つかりません。model ID、AWS region、Bedrock model access を確認してください。"
+    if "presigned url" in normalized or ("s3" in normalized and "accessdenied" in normalized):
+        return "画像の presigned URL 生成または S3 保存権限が不足しています。S3 bucket policy と Runtime role を確認してください。"
     if "permission" in normalized or "403" in normalized or "denied" in normalized:
-        return "Google Cloud の権限が不足しています。Cloud Run / Agent Runtime / Cloud Storage の IAM 設定を確認してください。"
-    if "agent runtime returned no workflow response" in normalized or "assertionerror" in normalized:
-        return "Agent Runtime から期待した形式の応答が返りませんでした。Runtime logs を確認してください。"
-    if "gcs_bucket is required" in normalized:
-        return "生成画像の保存先 bucket が設定されていません。GCS_BUCKET を設定して Runtime を再 deploy してください。"
+        return "AWS の権限が不足しています。Bedrock AgentCore / Bedrock / S3 / App Runner の IAM 設定を確認してください。"
+    if "agentcore runtime returned no workflow response" in normalized or "assertionerror" in normalized:
+        return "AgentCore Runtime から期待した形式の応答が返りませんでした。CloudWatch logs を確認してください。"
+    if "s3_bucket is required" in normalized:
+        return "生成画像の保存先 bucket が設定されていません。S3_BUCKET を設定して Runtime を再 deploy してください。"
     if "exceeds" in normalized and "bytes" in normalized:
         return "記事本文が大きすぎるため取得を停止しました。別の記事 URL で試してください。"
     if "url" in normalized or "fetch" in normalized or "article" in normalized:
@@ -456,7 +456,7 @@ def _estimated_progress_steps(elapsed_seconds: int, milestones: list[tuple[int, 
             status = "done"
         else:
             status = "running"
-        detail = "目安ステップです。実際の結果は Agent Runtime 完了後に反映されます"
+        detail = "目安ステップです。実際の結果は AgentCore Runtime 完了後に反映されます"
         steps.append(ProgressStep(label, status, detail))
     return steps
 
