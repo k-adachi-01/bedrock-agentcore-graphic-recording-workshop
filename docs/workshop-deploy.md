@@ -1,6 +1,6 @@
 # Workshop Deployment Guide
 
-この手順は、参加者が **AWS CloudShell で repository を clone** し、自分の AWS account にデモを deploy して、App Runner URL で動作確認するところまでを対象にします。
+この手順は、参加者が **AWS CloudShell で repository を clone** し、自分の AWS account にデモを deploy して、ECS Express の default URL で動作確認するところまでを対象にします。
 
 ローカル PC での実行は推奨しません。ワークショップ参加者の AWS credential、Python version、Node/pnpm version の混線を避けるためです。
 
@@ -8,17 +8,17 @@
 
 ## 0. 全体構成
 
-- AWS App Runner: FastAPI Web UI、ログイン、HTMX polling、AgentCore Runtime 呼び出し
+- Amazon ECS Express Mode (Fargate): FastAPI Web UI、ログイン、HTMX polling、AgentCore Runtime 呼び出し
 - Bedrock AgentCore Runtime: Strands Agent workflow の実行、記事取得、要約、style 判断、画像生成
 - Amazon Bedrock: text model と image model
 - Amazon S3: AgentCore Runtime が生成した画像 artifact の保存
-- CloudWatch Logs: App Runner と AgentCore Runtime のログ確認
+- CloudWatch Logs: ECS Express と AgentCore Runtime のログ確認
 
 重要な境界:
 
-- AgentCore Runtime の local filesystem は App Runner から見えないため、生成物は S3 に置く
-- App Runner は UI と polling に集中し、workflow は AgentCore Runtime に寄せる
-- Runtime から App Runner へ返す値は `agent/runtime_contract.py` の JSON contract で固定する
+- AgentCore Runtime の local filesystem は ECS Express から見えないため、生成物は S3 に置く
+- ECS Express は UI と polling に集中し、workflow は AgentCore Runtime に寄せる
+- Runtime から ECS Express へ返す値は `agent/runtime_contract.py` の JSON contract で固定する
 
 ## 1. 事前準備
 
@@ -26,7 +26,8 @@ AWS Console で次を確認します。
 
 - 利用する AWS account にログインできる
 - Bedrock model access で text model と image model が有効
-- App Runner、S3、CloudWatch Logs、Bedrock、Bedrock AgentCore を使える IAM 権限がある
+- ECS Express (Fargate)、S3、CloudWatch Logs、Bedrock、Bedrock AgentCore を使える IAM 権限がある
+- ECR (Elastic Container Registry) に Docker image を push できる IAM 権限がある
 
 推奨 region:
 
@@ -61,7 +62,7 @@ uv pip install -r requirements.txt -c constraints-workshop.txt
 export AWS_REGION="us-east-1"
 export AWS_DEFAULT_REGION="${AWS_REGION}"
 
-export APP_RUNNER_SERVICE_NAME="graphic-recording-agent-demo"
+export ECS_SERVICE_NAME="graphic-recording-agent-demo"
 export APP_PASSWORD="CHANGE_ME_TO_YOUR_PASSWORD"
 export APP_SECRET_KEY="$(openssl rand -hex 32)"
 
@@ -71,6 +72,7 @@ export BEDROCK_IMAGE_MODEL_ID="amazon.nova-canvas-v1:0"
 export S3_BUCKET="graphic-recording-artifacts-${RANDOM}-${RANDOM}"
 export S3_ARTIFACT_PREFIX="artifacts"
 export S3_PRESIGNED_URL_TTL_SECONDS="28800"
+export ECR_REPO_NAME="graphic-recording-agent-demo"
 ```
 
 ## 4. AWS 認証と S3 bucket
@@ -122,33 +124,48 @@ MOCK_MODE=false
 
 Runtime role には Bedrock invoke と S3 put/get の権限が必要です。
 
-## 6. App Runner を deploy
+## 6. ECS Express Mode を deploy
 
-App Runner Console でこの repository または fork を source として service を作成します。Runtime は repository の `Dockerfile` を使う構成にします。`Dockerfile` 内で uv を使って Python 依存を install し、`uvicorn web.main:app --host 0.0.0.0 --port 8080` で起動します。
-
-Runtime environment variables:
+単一の script で ECR repository 作成、Docker build / push、ECS Express Mode service 作成まで行います。
 
 ```bash
-APP_ENV=production
-APP_PASSWORD=${APP_PASSWORD}
-APP_SECRET_KEY=${APP_SECRET_KEY}
-APP_LOG_FORMAT=json
-MOCK_MODE=false
-AGENT_BACKEND=runtime
-AGENTCORE_RUNTIME_ARN=${AGENTCORE_RUNTIME_ARN}
-AWS_REGION=${AWS_REGION}
-BEDROCK_TEXT_MODEL_ID=${BEDROCK_TEXT_MODEL_ID}
-BEDROCK_IMAGE_MODEL_ID=${BEDROCK_IMAGE_MODEL_ID}
-S3_BUCKET=${S3_BUCKET}
-S3_ARTIFACT_PREFIX=${S3_ARTIFACT_PREFIX}
-S3_PRESIGNED_URL_TTL_SECONDS=${S3_PRESIGNED_URL_TTL_SECONDS}
+./scripts/deploy-ecs-express.sh
 ```
 
-App Runner service role には `bedrock-agentcore:InvokeAgentRuntime` が必要です。
+この script は以下を自動で実行します:
+
+1. ECR repository (`graphic-recording-agent-demo`) を作成
+2. リポジトリの Dockerfile を build して ECR に push
+3. ECS Express Mode に必要な IAM role (`ecsTaskExecutionRole`, `ecsInfrastructureRoleForExpressServices`) がなければ作成
+4. `aws ecs create-express-gateway-service` で Fargate + ALB + オートスケーリングを一括プロビジョニング
+
+Provisioning には 3〜5 分かかります。完了後、service の default URL を取得します。
+
+```bash
+aws ecs describe-services --cluster express --services "${ECS_SERVICE_NAME}" --region "${AWS_REGION}" --query 'services[0].networkConfiguration.defaultEndpoint' --output text
+```
+
+ECS タスクから AgentCore Runtime を呼び出せるよう、ecsTaskExecutionRole に invoke 権限を追加します。
+
+```bash
+aws iam put-role-policy \
+  --role-name ecsTaskExecutionRole \
+  --policy-name InvokeAgentCore \
+  --policy-document '{
+    "Version":"2012-10-17",
+    "Statement":[{
+      "Effect":"Allow",
+      "Action":"bedrock-agentcore:InvokeAgentRuntime",
+      "Resource":"'"${AGENTCORE_RUNTIME_ARN}"'"
+    }]
+  }'
+```
+
+> ECS Express Mode は最低 1 タスクが常時稼働するため、ワークショップ後は必ず削除してください。`scripts/cleanup-aws-resources.sh` を参照ください。
 
 ## 7. Smoke test
 
-App Runner URL を開き、`APP_PASSWORD` でログインします。
+ECS Express の default URL を開き、`APP_PASSWORD` でログインします。
 
 1. 公開記事 URL を入力する
 2. 要約が表示されることを確認する
@@ -156,7 +173,7 @@ App Runner URL を開き、`APP_PASSWORD` でログインします。
 4. グラレコ結果が表示されることを確認する
 5. フィードバックを入力して再生成する
 
-画像生成は 1〜3 分かかることがあります。止まって見える場合でも、経過秒数が更新されていれば App Runner の polling は動いています。
+画像生成は 1〜3 分かかることがあります。止まって見える場合でも、経過秒数が更新されていれば ECS Express の polling は動いています。
 
 ## 8. Mock mode
 
@@ -180,9 +197,9 @@ uvicorn web.main:app --host 0.0.0.0 --port 8080
 
 確認する場所:
 
-- App Runner service status と service logs
+- ECS Express service status (describe-services) と CloudWatch Logs
 - AgentCore Runtime logs
-- CloudWatch Logs の exception stack trace
+- ALB target group の health check が healthy か
 - S3 bucket の `artifacts/` prefix
 - IAM role に Bedrock invoke、AgentCore invoke、S3 put/get があるか
 
@@ -206,7 +223,21 @@ AccessDeniedException
 bedrock-agentcore:InvokeAgentRuntime denied
 ```
 
-対処: App Runner service role に Runtime ARN への invoke 権限を付与します。
+対処: ecsTaskExecutionRole に Runtime ARN への invoke 権限を付与します。
+
+```bash
+aws iam put-role-policy \
+  --role-name ecsTaskExecutionRole \
+  --policy-name InvokeAgentCore \
+  --policy-document '{
+    "Version":"2012-10-17",
+    "Statement":[{
+      "Effect":"Allow",
+      "Action":"bedrock-agentcore:InvokeAgentRuntime",
+      "Resource":"'"${AGENTCORE_RUNTIME_ARN}"'"
+    }]
+  }'
+```
 
 ### S3 保存または presigned URL が失敗する
 
@@ -226,7 +257,8 @@ AccessDenied for s3:PutObject or s3:GetObject
 
 正確な発生額は AWS Billing Console で確認します。主な対象は次です。
 
-- AWS App Runner
+- Amazon ECS Express Mode (Fargate vCPU / メモリ)
+- Application Load Balancer
 - Amazon Bedrock text model
 - Amazon Bedrock image model
 - Bedrock AgentCore Runtime
@@ -236,7 +268,7 @@ AccessDenied for s3:PutObject or s3:GetObject
 ## 12. 後片付け
 
 ```bash
-export APP_RUNNER_SERVICE_ARN="PASTE_SERVICE_ARN_HERE"
+export ECS_SERVICE_NAME="graphic-recording-agent-demo"
 ./scripts/cleanup-aws-resources.sh
 ```
 

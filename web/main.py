@@ -453,13 +453,13 @@ def _display_error(exc: Exception) -> str:
 def _friendly_error_message(message: str) -> str:
     normalized = message.lower()
     if "account_id" in normalized or "runtime_id" in normalized or "placeholder" in normalized:
-        return "AgentCore Runtime ARN に placeholder が残っています。AGENTCORE_RUNTIME_ARN を実際の ARN に設定して App Runner を再 deploy してください。"
+        return "AgentCore Runtime ARN に placeholder が残っています。AGENTCORE_RUNTIME_ARN を実際の ARN に設定して ECS Express を再 deploy してください。"
     if "publisher model" in normalized or ("model" in normalized and "404" in normalized):
         return "Bedrock model が見つかりません。model ID、AWS region、Bedrock model access を確認してください。"
     if "presigned url" in normalized or ("s3" in normalized and "accessdenied" in normalized):
         return "画像の presigned URL 生成または S3 保存権限が不足しています。S3 bucket policy と Runtime role を確認してください。"
     if "permission" in normalized or "403" in normalized or "denied" in normalized:
-        return "AWS の権限が不足しています。Bedrock AgentCore / Bedrock / S3 / App Runner の IAM 設定を確認してください。"
+        return "AWS の権限が不足しています。Bedrock AgentCore / Bedrock / S3 / ECS の IAM 設定を確認してください。"
     if "agentcore runtime returned no workflow response" in normalized or "assertionerror" in normalized:
         return "AgentCore Runtime から期待した形式の応答が返りませんでした。CloudWatch logs を確認してください。"
     if "s3_bucket is required" in normalized:

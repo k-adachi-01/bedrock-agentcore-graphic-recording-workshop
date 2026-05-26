@@ -102,7 +102,7 @@ async def fetch_article(url: str) -> dict[str, str]:
             "Agent は URL から情報を取得し、要約、構造化、成果物生成までを一連の action として実行します。"
             "Strands Agents を使うと tool の責務を分けながら Agent の振る舞いを定義でき、"
             "Bedrock AgentCore Runtime に配置することで Web App から安定して呼び出せます。"
-            "AWS App Runner は FastAPI の Web フロントエンドを動かし、S3 は生成画像や SVG を保存します。"
+            "Amazon ECS Express Mode (Fargate) は FastAPI の Web フロントエンドを動かし、S3 は生成画像や SVG を保存します。"
             "デモではまず mock mode で外部 API に依存せず UX と処理順序を確認し、"
             "その後 Bedrock text model と image model に差し替えていきます。"
         )

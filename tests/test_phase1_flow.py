@@ -205,7 +205,7 @@ def test_graphic_prompt_excludes_workshop_runtime_scaffolding(monkeypatch):
     assert image.data == b"png"
     assert "要約1" in captured["prompt"]
     assert "ポイント1" in captured["prompt"]
-    for forbidden in ["勉強会", "デモ", "URL取得", "AgentCore Runtime", "Strands", "App Runner", "S3", "Visual Plan"]:
+    for forbidden in ["勉強会", "デモ", "URL取得", "AgentCore Runtime", "Strands", "ECS Express", "S3", "Visual Plan"]:
         assert forbidden not in captured["prompt"]
 
 

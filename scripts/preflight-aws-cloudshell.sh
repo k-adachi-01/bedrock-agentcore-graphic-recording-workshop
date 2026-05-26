@@ -17,6 +17,7 @@ require_command() {
 
 section "Commands"
 require_command aws
+require_command docker
 require_command uv
 require_command pnpm
 
